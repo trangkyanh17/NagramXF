@@ -29,8 +29,12 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.radolyn.ayugram.AyuConstants;
 import com.radolyn.ayugram.AyuUtils;
 import com.radolyn.ayugram.database.entities.EditedMessage;
+import com.radolyn.ayugram.messages.AyuHistorySnapshot;
 import com.radolyn.ayugram.messages.AyuMessagesController;
+import com.radolyn.ayugram.utils.AyuAsyncRequestGate;
 import com.radolyn.ayugram.utils.AyuMessageUtils;
+import com.radolyn.ayugram.utils.AyuSafeLookup;
+import com.radolyn.ayugram.utils.AyuUiRequestKey;
 import com.radolyn.ayugram.utils.AyuFileLocation;
 
 import org.telegram.messenger.AndroidUtilities;
@@ -79,7 +83,10 @@ public class AyuMessageHistory extends NekoDelegateFragment {
     private static final int OPTION_SAVE_TO_DOWNLOADS = 7;
     private static final int OPTION_TRANSLATE = 8;
     private final MessageObject messageObject;
-    private List<EditedMessage> messages;
+    private final AyuAsyncRequestGate<AyuUiRequestKey> historyRequestGate = new AyuAsyncRequestGate<>();
+    private List<EditedMessage> messages = new ArrayList<>();
+    private boolean historyLoaded;
+    private boolean historyLoadedOnce;
     private final ArrayList<MessageObject> messageObjects = new ArrayList<>();
     private int rowCount;
     private RecyclerListView listView;
@@ -91,7 +98,6 @@ public class AyuMessageHistory extends NekoDelegateFragment {
 
     public AyuMessageHistory(MessageObject messageObject) {
         this.messageObject = messageObject;
-        updateHistory();
     }
 
     @Override
@@ -105,24 +111,45 @@ public class AyuMessageHistory extends NekoDelegateFragment {
         }
     }
 
-    private void updateHistory() {
-        messages = AyuMessagesController.getInstance().getRevisions(getUserConfig().clientUserId, messageObject.messageOwner.dialog_id, messageObject.messageOwner.id);
-        if (messages == null) {
-            messages = new ArrayList<>();
-        }
-        rowCount = messages.size();
-        cacheAttachmentFileNames();
-        rebuildMessageObjects();
+    private void requestHistoryReload() {
+        int account = getCurrentAccount();
+        long dialogId = messageObject.messageOwner.dialog_id;
+        int messageId = messageObject.messageOwner.id;
+        long userId = UserConfig.getInstance(account).getClientUserId();
+        AyuUiRequestKey requestKey = AyuUiRequestKey.forMessage(account, dialogId, messageId);
+        long generation = historyRequestGate.begin(requestKey);
+
+        historyLoaded = false;
         updateEmptyView();
+        Utilities.globalQueue.postRunnable(() -> {
+            AyuHistorySnapshot snapshot = AyuSafeLookup.run(
+                    () -> AyuMessagesController.loadHistorySnapshot(userId, dialogId, messageId),
+                    AyuHistorySnapshot.empty(),
+                    error -> FileLog.e(error)
+            );
+            AndroidUtilities.runOnUIThread(() -> applyHistorySnapshot(generation, requestKey, snapshot));
+        });
     }
 
-    private void cacheAttachmentFileNames() {
-        File attachmentsDir = AyuMessagesController.attachmentsPath;
-        if (attachmentsDir.exists()) {
-            cachedAttachmentFileNames = attachmentsDir.list();
-        } else {
-            cachedAttachmentFileNames = null;
+    private void applyHistorySnapshot(long generation, AyuUiRequestKey requestKey, AyuHistorySnapshot snapshot) {
+        if (!historyRequestGate.isCurrent(generation, requestKey) || isFinished || fragmentView == null) {
+            return;
         }
+
+        boolean firstLoad = !historyLoadedOnce;
+        messages = new ArrayList<>(snapshot.getRevisions());
+        cachedAttachmentFileNames = snapshot.getAttachmentFileNames();
+        rowCount = messages.size();
+        historyLoaded = true;
+        historyLoadedOnce = true;
+        rebuildMessageObjects();
+        if (listView != null && listView.getAdapter() != null) {
+            listView.getAdapter().notifyDataSetChanged();
+            if (firstLoad && rowCount > 0) {
+                listView.scrollToPosition(rowCount - 1);
+            }
+        }
+        updateEmptyView();
     }
 
     @Override
@@ -224,6 +251,7 @@ public class AyuMessageHistory extends NekoDelegateFragment {
         frameLayout.addView(emptyView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER));
 
         updateEmptyView();
+        requestHistoryReload();
 
         return fragmentView;
     }
@@ -233,6 +261,16 @@ public class AyuMessageHistory extends NekoDelegateFragment {
     }
 
     private void updateEmptyView(boolean delayIfEmpty) {
+        if (!historyLoaded) {
+            if (showEmptyViewRunnable != null) {
+                AndroidUtilities.cancelRunOnUIThread(showEmptyViewRunnable);
+                showEmptyViewRunnable = null;
+            }
+            if (emptyView != null) {
+                emptyView.setVisibility(View.GONE);
+            }
+            return;
+        }
         showEmptyViewRunnable = updateListEmptyView(() -> emptyView, () -> listView, rowCount == 0, delayIfEmpty, showEmptyViewRunnable, () -> showEmptyViewRunnable = null);
     }
 
@@ -248,6 +286,7 @@ public class AyuMessageHistory extends NekoDelegateFragment {
 
     @Override
     public void onFragmentDestroy() {
+        historyRequestGate.invalidate();
         super.onFragmentDestroy();
 
         NotificationCenter.getInstance(UserConfig.selectedAccount).removeObserver(this, AyuConstants.MESSAGE_EDITED_NOTIFICATION);
@@ -277,11 +316,10 @@ public class AyuMessageHistory extends NekoDelegateFragment {
             var dialogId = (long) args[0];
             var messageId = (int) args[1];
 
-            if (dialogId == messageObject.messageOwner.dialog_id && messageId == messageObject.messageOwner.id) {
-                updateHistory();
-                if (listView != null && listView.getAdapter() != null) {
-                    listView.getAdapter().notifyDataSetChanged();
-                }
+            if (fragmentView != null
+                    && dialogId == messageObject.messageOwner.dialog_id
+                    && messageId == messageObject.messageOwner.id) {
+                requestHistoryReload();
             }
         } else if (id == NotificationCenter.voiceTranscriptionUpdate) {
             handleVoiceTranscriptionUpdate(args);
