@@ -244,7 +244,9 @@ android {
             multiDexEnabled = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             matchingFallbacks = ['release', 'staging', 'debug']
-            signingConfig = signingConfigs.release
+            // Forks don't inherit Actions secrets. Keep staging buildable without
+            // release credentials, while preferring the release key when configured.
+            signingConfig = keystorePwd && alias && pwd ? signingConfigs.release : signingConfigs.debug
         }
 
         release {
