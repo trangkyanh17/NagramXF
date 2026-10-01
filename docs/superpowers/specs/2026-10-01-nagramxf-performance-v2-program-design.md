@@ -1,6 +1,6 @@
 # NagramXF Performance V2 Program Design
 
-**Status:** Proposed for user review
+**Status:** Approved 2026-10-01
 **Baseline:** `30dcd6ce7b5b0279fa86f302ca61cd272bfa3068` (`1251`)
 **Repository:** `trangkyanh17/NagramXF`
 
