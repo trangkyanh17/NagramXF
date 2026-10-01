@@ -5,25 +5,25 @@ import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.UserConfig;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 
 public class DummyMessageWaiter extends SyncWaiter {
 
     private static final long LOOKUP_TIMEOUT_MS = 3500L;
-    private static final long WATCHER_TIMEOUT_MS = 300000L;
-    private static final long POLL_INTERVAL_MS = 25L;
 
-    private final Set<Integer> alreadySent = Collections.synchronizedSet(new HashSet<>());
-    private final Set<Integer> baselineIds = new HashSet<>();
+    private final Object stateLock = new Object();
+    private final CountDownLatch identificationSignal = new CountDownLatch(1);
+    private final ArrayList<StateMutation> pendingMutations = new ArrayList<>();
 
+    private MessageWaitState state;
     private long dialogId;
-    private int baselinePendingCount;
-    private volatile boolean failed;
-    private volatile boolean queueWatcherStarted;
 
-    public int sendingId;
+    public volatile int sendingId;
+
+    @FunctionalInterface
+    private interface StateMutation {
+        void apply(MessageWaitState state);
+    }
 
     public DummyMessageWaiter(int currentAccount) {
         super(currentAccount);
@@ -31,160 +31,192 @@ public class DummyMessageWaiter extends SyncWaiter {
         notifications.add(NotificationCenter.messageSendError);
         notifications.add(NotificationCenter.messageReceivedByAck);
         notifications.add(NotificationCenter.messagesDeleted);
+        notifications.add(NotificationCenter.sendingMessagesChanged);
     }
 
-    public void trySetSendingId(long dialogId, ArrayList<Integer> existingIds) {
+    public void prepare(long dialogId, ArrayList<Integer> existingIds) {
         if (dialogId == 0) {
             dialogId = UserConfig.getInstance(currentAccount).getClientUserId();
         }
-        this.dialogId = dialogId;
-        SendMessagesHelper sendMessagesHelper = SendMessagesHelper.getInstance(currentAccount);
-        baselineIds.clear();
-        if (existingIds != null) {
-            baselineIds.addAll(existingIds);
-        }
-        baselinePendingCount = baselineIds.size();
-        long start = System.currentTimeMillis();
-        int currentSendingId = 0;
-        while (currentSendingId == 0) {
-            currentSendingId = resolveNewSendingId(sendMessagesHelper);
-            if (currentSendingId != 0) {
-                break;
+        boolean signalIdentification = false;
+        boolean releaseWaiter = false;
+        synchronized (stateLock) {
+            this.dialogId = dialogId;
+            state = new MessageWaitState(existingIds);
+            for (int i = 0; i < pendingMutations.size(); i++) {
+                int previousId = state.getSendingId();
+                pendingMutations.get(i).apply(state);
+                signalIdentification |= previousId == 0 && state.getSendingId() != 0;
             }
-            if (System.currentTimeMillis() - start > LOOKUP_TIMEOUT_MS) {
-                startQueueWatcher(sendMessagesHelper);
-                break;
-            }
-            try {
-                Thread.sleep(POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                unsubscribe();
-                break;
-            }
+            pendingMutations.clear();
+            sendingId = state.getSendingId();
+            releaseWaiter = state.isComplete();
         }
-        if (currentSendingId != 0) {
-            setSendingId(currentSendingId);
-            startQueueWatcher(sendMessagesHelper);
-        }
+        finishStateChange(signalIdentification, releaseWaiter);
+    }
+
+    public void onDispatchCompleted() {
+        reconcileQueue();
+    }
+
+    public int awaitSendingId() {
+        MessageIdentificationWait.await(
+                identificationSignal,
+                LOOKUP_TIMEOUT_MS,
+                this::expireLookupWindow,
+                this::unsubscribe
+        );
+        return sendingId;
+    }
+
+    public void trySetSendingId(long dialogId, ArrayList<Integer> existingIds) {
+        prepare(dialogId, existingIds);
+        onDispatchCompleted();
+        awaitSendingId();
     }
 
     public boolean hasFailed() {
-        return failed || isTimedOut();
+        synchronized (stateLock) {
+            return state != null && state.hasFailed() || isTimedOut();
+        }
     }
 
-    private void setSendingId(int sendingId) {
-        this.sendingId = sendingId;
-        if (alreadySent.contains(sendingId)) {
+    private void expireLookupWindow() {
+        ArrayList<Integer> finalSnapshot = snapshotQueue();
+        applyStateMutation(current -> current.expireLookupWindow(finalSnapshot));
+    }
+
+    private void reconcileQueue() {
+        ArrayList<Integer> snapshot = snapshotQueue();
+        if (snapshot != null) {
+            applyStateMutation(current -> current.observeSnapshot(snapshot));
+        }
+    }
+
+    private ArrayList<Integer> snapshotQueue() {
+        long targetDialog;
+        synchronized (stateLock) {
+            if (state == null) {
+                return null;
+            }
+            targetDialog = dialogId;
+        }
+        try {
+            return SendMessagesHelper.getInstance(currentAccount).getSendingMessageIds(targetDialog);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private void applyStateMutation(StateMutation mutation) {
+        boolean signalIdentification = false;
+        boolean releaseWaiter = false;
+        synchronized (stateLock) {
+            if (state == null) {
+                pendingMutations.add(mutation);
+                return;
+            }
+            int previousId = state.getSendingId();
+            mutation.apply(state);
+            sendingId = state.getSendingId();
+            signalIdentification = previousId == 0 && sendingId != 0;
+            releaseWaiter = state.isComplete();
+        }
+        finishStateChange(signalIdentification, releaseWaiter);
+    }
+
+    private void finishStateChange(boolean signalIdentification, boolean releaseWaiter) {
+        if (signalIdentification) {
+            identificationSignal.countDown();
+        }
+        if (releaseWaiter) {
             unsubscribe();
         }
     }
 
-    private int resolveNewSendingId(SendMessagesHelper sendMessagesHelper) {
-        try {
-            ArrayList<Integer> currentIds = sendMessagesHelper.getSendingMessageIds(dialogId);
-            for (int i = 0; i < currentIds.size(); i++) {
-                Integer id = currentIds.get(i);
-                if (id != null && !baselineIds.contains(id)) {
-                    return id;
-                }
-            }
-        } catch (Exception ignore) {
+    private boolean isPreparedAndUnidentified() {
+        synchronized (stateLock) {
+            return state != null && state.getSendingId() == 0 && !state.isComplete();
         }
-        return 0;
     }
 
-    private void startQueueWatcher(SendMessagesHelper sendMessagesHelper) {
-        if (queueWatcherStarted || isReleased()) {
-            return;
-        }
-        queueWatcherStarted = true;
-        Thread watcher = new Thread(() -> {
-            boolean observedNewPending = sendingId != 0;
-            long start = System.currentTimeMillis();
-            while (!isReleased() && System.currentTimeMillis() - start < WATCHER_TIMEOUT_MS) {
-                try {
-                    ArrayList<Integer> currentIds = sendMessagesHelper.getSendingMessageIds(dialogId);
-                    for (int i = 0; i < currentIds.size(); i++) {
-                        Integer id = currentIds.get(i);
-                        if (id != null && !baselineIds.contains(id)) {
-                            observedNewPending = true;
-                            if (sendingId == 0) {
-                                setSendingId(id);
-                            }
-                            break;
-                        }
-                    }
-
-                    if (!observedNewPending && !alreadySent.isEmpty()) {
-                        observedNewPending = true;
-                    }
-
-                    if (observedNewPending && currentIds.size() <= baselinePendingCount) {
-                        unsubscribe();
-                        return;
-                    }
-
-                    Thread.sleep(POLL_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                } catch (Exception ignore) {
-                }
-            }
-        }, "AyuMessageWaiter-" + currentAccount);
-        watcher.setDaemon(true);
-        watcher.start();
+    private boolean matchesDialog(long eventDialogId) {
+        return Math.abs(eventDialogId) == Math.abs(dialogId)
+                || eventDialogId == 0L
+                || dialogId == 0L;
     }
 
     @Override
     public void didReceivedNotification(int id, int account, Object... args) {
-        if (id == NotificationCenter.messageReceivedByAck
-                || id == NotificationCenter.messageReceivedByServer
-                || id == NotificationCenter.messageSendError) {
-            if (args == null || args.length == 0 || !(args[0] instanceof Integer)) {
-                return;
-            }
-            Integer messageId = (Integer) args[0];
-            if (id == NotificationCenter.messageSendError) {
-                failed = true;
-            }
-            if (sendingId == 0) {
-                alreadySent.add(messageId);
-                return;
-            }
-            if (messageId == sendingId) {
-                unsubscribe();
-            }
+        if (id == NotificationCenter.sendingMessagesChanged) {
+            reconcileQueue();
             return;
         }
 
-        if (id != NotificationCenter.messagesDeleted || args == null || args.length < 2 || !(args[0] instanceof ArrayList) || !(args[1] instanceof Long)) {
+        if (id == NotificationCenter.messageReceivedByAck || id == NotificationCenter.messageSendError) {
+            handleTerminalEvent(id, args);
             return;
         }
 
-        ArrayList<?> deletedIds = (ArrayList<?>) args[0];
-        Long dialogId = (Long) args[1];
-        if (Math.abs(dialogId) != Math.abs(this.dialogId) && dialogId != 0L && this.dialogId != 0L) {
+        if (id == NotificationCenter.messageReceivedByServer) {
+            handleServerEvent(args);
             return;
         }
 
-        if (sendingId == 0) {
-            for (int i = 0; i < deletedIds.size(); i++) {
-                Object value = deletedIds.get(i);
-                if (value instanceof Integer) {
-                    alreadySent.add((Integer) value);
-                }
+        if (id == NotificationCenter.messagesDeleted) {
+            handleDeletionEvent(args);
+        }
+    }
+
+    private void handleTerminalEvent(int id, Object... args) {
+        if (args == null || args.length == 0 || !(args[0] instanceof Integer)) {
+            return;
+        }
+        int messageId = (Integer) args[0];
+        boolean failure = id == NotificationCenter.messageSendError;
+        applyStateMutation(current -> current.observeTerminal(messageId, failure));
+        if (isPreparedAndUnidentified()) {
+            reconcileQueue();
+        }
+    }
+
+    private void handleServerEvent(Object... args) {
+        if (args == null || args.length == 0 || !(args[0] instanceof Integer)) {
+            return;
+        }
+        int messageId = (Integer) args[0];
+        boolean dialogKnown = args.length > 3 && args[3] instanceof Long;
+        long eventDialogId = dialogKnown ? (Long) args[3] : 0L;
+        applyStateMutation(current -> current.observeServer(
+                messageId,
+                dialogKnown && matchesDialog(eventDialogId)
+        ));
+        if (isPreparedAndUnidentified()) {
+            reconcileQueue();
+        }
+    }
+
+    private void handleDeletionEvent(Object... args) {
+        if (args == null || args.length < 2 || !(args[0] instanceof ArrayList) || !(args[1] instanceof Long)) {
+            return;
+        }
+
+        ArrayList<?> values = (ArrayList<?>) args[0];
+        ArrayList<Integer> deletedIds = new ArrayList<>();
+        for (int i = 0; i < values.size(); i++) {
+            Object value = values.get(i);
+            if (value instanceof Integer) {
+                deletedIds.add((Integer) value);
             }
-            return;
         }
-
-        for (int i = 0; i < deletedIds.size(); i++) {
-            Object value = deletedIds.get(i);
-            if (value instanceof Integer && (Integer) value == sendingId) {
-                unsubscribe();
-                return;
-            }
+        long eventDialogId = (Long) args[1];
+        boolean preparedAndMatching;
+        synchronized (stateLock) {
+            preparedAndMatching = state != null && matchesDialog(eventDialogId);
+        }
+        applyStateMutation(current -> current.observeDeletion(deletedIds, matchesDialog(eventDialogId)));
+        if (preparedAndMatching && isPreparedAndUnidentified()) {
+            reconcileQueue();
         }
     }
 }
