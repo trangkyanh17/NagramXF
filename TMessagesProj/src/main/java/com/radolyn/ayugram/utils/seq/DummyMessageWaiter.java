@@ -69,12 +69,6 @@ public class DummyMessageWaiter extends SyncWaiter {
         return sendingId;
     }
 
-    public void trySetSendingId(long dialogId, ArrayList<Integer> existingIds) {
-        prepare(dialogId, existingIds);
-        onDispatchCompleted();
-        awaitSendingId();
-    }
-
     public boolean hasFailed() {
         synchronized (stateLock) {
             return state != null && state.hasFailed() || isTimedOut();
