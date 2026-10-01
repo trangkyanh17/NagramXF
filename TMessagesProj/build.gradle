@@ -59,6 +59,7 @@ if (properties != null) {
 keystorePwd = keystorePwd ?: System.getenv('KEYSTORE_PASS')
 alias = alias ?: System.getenv('ALIAS_NAME')
 pwd = pwd ?: System.getenv('ALIAS_PASS')
+def keystoreFile = System.getenv('KEYSTORE_FILE') ?: 'release.keystore'
 
 def nativeTarget = System.getenv('NATIVE_TARGET') ?: ''
 // Plugin package is arm-only: shadowhook doesn't support x86.
@@ -220,7 +221,7 @@ android {
 
     signingConfigs {
         release {
-            storeFile project.file('release.keystore')
+            storeFile project.file(keystoreFile)
             storePassword keystorePwd
             keyAlias alias
             keyPassword pwd
@@ -244,9 +245,7 @@ android {
             multiDexEnabled = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             matchingFallbacks = ['release', 'staging', 'debug']
-            // Forks don't inherit Actions secrets. Keep staging buildable without
-            // release credentials, while preferring the release key when configured.
-            signingConfig = keystorePwd && alias && pwd ? signingConfigs.release : signingConfigs.debug
+            signingConfig = signingConfigs.release
         }
 
         release {
