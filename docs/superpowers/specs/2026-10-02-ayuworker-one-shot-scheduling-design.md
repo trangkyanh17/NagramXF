@@ -1,6 +1,6 @@
 # P3 — AyuWorker One-Shot Scheduling Design
 
-**Status:** Proposed for user review
+**Status:** Approved 2026-10-02
 **Program:** NagramXF Performance V2
 **Golden behavioral baseline:** `30dcd6ce7b5b0279fa86f302ca61cd272bfa3068`
 **Implementation base after P2:** `5d478ff9ad54fac5b3063ad73892ec488cf934eb`
