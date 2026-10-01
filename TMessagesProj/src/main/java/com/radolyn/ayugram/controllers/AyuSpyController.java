@@ -6,6 +6,7 @@ import com.radolyn.ayugram.database.dao.SpyDao;
 import com.radolyn.ayugram.database.entities.SpyMessageContentsRead;
 import com.radolyn.ayugram.database.entities.SpyMessageRead;
 import com.radolyn.ayugram.utils.AyuQueues;
+import com.radolyn.ayugram.utils.AyuSafeLookup;
 
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.UserConfig;
@@ -100,6 +101,24 @@ public final class AyuSpyController {
         }
         long selfUserId = UserConfig.getInstance(account).getClientUserId();
         return AyuData.getSpyDao() == null ? null : AyuData.getSpyDao().getMessageContentsRead(selfUserId, dialogId, messageId);
+    }
+
+    public static int getReadDateTimestamp(int account, long dialogId, int messageId) {
+        if (!isEnabled()) {
+            return 0;
+        }
+        return AyuSafeLookup.run(() -> {
+            long selfUserId = UserConfig.getInstance(account).getClientUserId();
+            SpyDao dao = AyuData.getSpyDao();
+            if (dao == null) {
+                return 0;
+            }
+            return AyuReadDateResolver.resolve(
+                    true,
+                    () -> dao.getMessageRead(selfUserId, dialogId, messageId),
+                    () -> dao.getMessageContentsRead(selfUserId, dialogId, messageId)
+            );
+        }, 0, error -> FileLog.e(error));
     }
 
     public static void deleteForDialog(int account, long dialogId) {
