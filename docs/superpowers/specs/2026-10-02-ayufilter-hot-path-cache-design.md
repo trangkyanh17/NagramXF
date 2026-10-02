@@ -1,6 +1,6 @@
 # P4A — AyuFilter Hot-Path Exclusion Cache Design
 
-**Status:** Proposed for user review
+**Status:** Approved 2026-10-02
 **Program:** NagramXF Performance V2
 **Golden behavioral baseline:** `30dcd6ce7b5b0279fa86f302ca61cd272bfa3068`
 **Implementation base after P3:** `73b7c6436b9625741c858ddd4f4ea1deb4f3c46b`
