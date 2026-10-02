@@ -116,7 +116,7 @@ The helper API is intentionally narrow:
 - `void invalidateShared()`;
 - `void invalidateAll()`.
 
-The helper synchronizes cache-miss/publication paths. Cache-hit reads use volatile published snapshots and must not allocate a new collection.
+The helper synchronizes cache-miss/publication paths. Cache-hit reads use volatile published snapshots and must not allocate a new collection. A cache-miss loader executes inside the same helper synchronization domain as publication/invalidation, so an invalidation that races an in-flight load cannot be lost behind a stale publication.
 
 A loader exception is not swallowed by the helper and must not publish a new snapshot. `AyuFilter` remains responsible for its existing logging/fallback semantics.
 
@@ -140,7 +140,7 @@ Existing invalidation sites that currently set `excludedSharedFilterIdsByDialog 
 
 ## Concurrency model
 
-Snapshots are immutable after publication. Readers can hold an older snapshot briefly while another thread publishes a newer one, but no reader can observe a partially built collection.
+Snapshots are immutable after publication. Readers can hold an older snapshot briefly while another thread publishes a newer one, but no reader can observe a partially built collection. Cache-miss loading, publication, and explicit invalidation are serialized by the helper; when invalidation races a first load, invalidation must win for subsequent lookups rather than being overwritten by the older load.
 
 A raw serialized dialog value is read before snapshot lookup. Because the snapshot key is that exact value, a later config value causes a miss/rebuild even if an explicit invalidation callback was skipped.
 
@@ -197,7 +197,8 @@ Pure helper tests must cover:
 11. the internal shared view rejects mutation;
 12. `sharedCopy()` returns a mutable independent copy and mutations do not affect the internal view;
 13. `invalidateShared()` forces the next shared lookup to reload;
-14. missing shared-dialog entries produce an empty read-only view while public copies remain independently mutable.
+14. missing shared-dialog entries produce an empty read-only view while public copies remain independently mutable;
+15. `invalidateShared()` racing an in-flight first load cannot be lost: after the invalidation returns, the next lookup must load a fresh snapshot rather than reuse the pre-invalidation data.
 
 Integration/parity verification must additionally prove:
 
