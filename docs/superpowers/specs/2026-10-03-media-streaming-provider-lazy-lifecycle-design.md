@@ -1,6 +1,6 @@
 # P5 — Lazy MediaStreamingProvider Lifecycle Design
 
-**Status:** Draft — awaiting design approval
+**Status:** Approved 2026-10-03
 **Program:** NagramXF Performance V2
 **Implementation base after P4B:** `57931554aec829fd6c5ceb6a2e2b13010bcf3170`
 **Golden behavioral baseline:** `30dcd6ce7b5b0279fa86f302ca61cd272bfa3068`
