@@ -1,6 +1,6 @@
 # P4B — AyuFilter Room Prewarm Implementation Plan
 
-**Status:** Draft — awaiting plan approval
+**Status:** Approved 2026-10-03
 **Design:** `docs/superpowers/specs/2026-10-03-ayufilter-room-prewarm-design.md`
 **Implementation base:** `cc1baf7be4a35f8ee4ccfdd26d477279a6dd7b2d`
 **Design commit:** `7a8f1894cc9b254a2496dbe9beeb21ff765dbfac`
