@@ -1,6 +1,6 @@
 # P5 — Lazy MediaStreamingProvider Lifecycle Implementation Plan
 
-**Status:** Draft — awaiting plan approval
+**Status:** Approved 2026-10-03
 **Design:** `docs/superpowers/specs/2026-10-03-media-streaming-provider-lazy-lifecycle-design.md`
 **Implementation base:** `57931554aec829fd6c5ceb6a2e2b13010bcf3170`
 **Design commit:** `d2a44d50f961eb226ef69bfd2cec3e61170001e4`
