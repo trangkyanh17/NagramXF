@@ -35,15 +35,30 @@ public class MediaStreamingProvider extends ContentProvider {
 
     @Override
     public boolean onCreate() {
-        callbackThread = new HandlerThread("MediaStreamingProvider");
-        callbackThread.start();
-        callbackHandler = new Handler(callbackThread.getLooper());
         return true;
+    }
+
+    private synchronized Handler getCallbackHandler() {
+        if (callbackHandler != null) {
+            return callbackHandler;
+        }
+        HandlerThread thread = new HandlerThread("MediaStreamingProvider");
+        thread.start();
+        Handler handler = new Handler(thread.getLooper());
+        callbackThread = thread;
+        callbackHandler = handler;
+        return callbackHandler;
     }
 
     @Override
     public void shutdown() {
-        callbackThread.quit();
+        synchronized (this) {
+            if (callbackThread != null) {
+                callbackThread.quit();
+            }
+            callbackHandler = null;
+            callbackThread = null;
+        }
     }
 
     @Nullable
@@ -96,7 +111,7 @@ public class MediaStreamingProvider extends ContentProvider {
         var callback = new ProxyFileDescriptorCallback(uri);
         var storageManager = StorageManagerCompat.from(getContext());
         try {
-            return storageManager.openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, callback, callbackHandler);
+            return storageManager.openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, callback, getCallbackHandler());
         } catch (IOException e) {
             throw new FileNotFoundException("Failed to open file");
         }
