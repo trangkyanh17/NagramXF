@@ -1,6 +1,6 @@
 # AyuFilter Hot-Path Cache Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Remove repeated excluded-dialog JSON parsing and internal shared-exclusion defensive-copy allocation from warm regex-filter paths without changing filter results or cold Room-loading behavior.
 
@@ -48,7 +48,7 @@
 - `void invalidateAll()`.
 - Returned internal views are unmodifiable; `sharedCopy` is mutable and independent.
 
-- [ ] **Step 1: Write the failing dialog snapshot tests**
+- [x] **Step 1: Write the failing dialog snapshot tests**
 
 Add tests:
 `firstDialogLookupLoadsOnce`,
@@ -60,21 +60,21 @@ Add tests:
 `dialogSnapshotIsReadOnly`,
 `nullLoadedDialogSetNormalizesToEmpty`.
 
-- [ ] **Step 2: Run dialog tests and confirm RED**
+- [x] **Step 2: Run dialog tests and confirm RED**
 
 Run:
 `./gradlew :TMessagesProj:testNormalDebugUnitTest --tests 'tw.nekomimi.nekogram.filters.AyuFilterExclusionSnapshotsTest' --no-configuration-cache`
 
 Expected: FAIL because `AyuFilterExclusionSnapshots` does not exist.
-- [ ] **Step 3: Implement only dialog snapshot behavior**
+- [x] **Step 3: Implement only dialog snapshot behavior**
 
 Use one immutable holder containing exact raw key + unmodifiable copied `Set<Long>`. Loader exceptions propagate and publish nothing. `publishDialogs` copies before publication. `invalidateDialogs` clears only the dialog holder.
 
-- [ ] **Step 4: Run focused tests and confirm dialog GREEN**
+- [x] **Step 4: Run focused tests and confirm dialog GREEN**
 
 Run the Step 2 command. Expected: all dialog tests PASS.
 
-- [ ] **Step 5: Add failing shared snapshot tests**
+- [x] **Step 5: Add failing shared snapshot tests**
 
 Add:
 `firstSharedLookupLoadsDeepSnapshotOnce`,
@@ -88,22 +88,22 @@ Add:
 
 The race test uses test-only threads plus latches: block the loader, start invalidation, release the loader, wait for invalidation to return, then assert the next lookup invokes a fresh loader.
 
-- [ ] **Step 6: Run focused tests and confirm shared RED**
+- [x] **Step 6: Run focused tests and confirm shared RED**
 
 Run the same focused command. Expected: FAIL because shared APIs/semantics are not yet implemented.
 
-- [ ] **Step 7: Implement shared snapshots and `invalidateAll`**
+- [x] **Step 7: Implement shared snapshots and `invalidateAll`**
 
 Deep-copy the loader map and every nested set before publishing a read-only map/set graph. Serialize shared cache-miss load/publication/invalidation in the helper so invalidation cannot be overwritten by an older in-flight load. Cache-hit `sharedView` returns the published set without a new collection.
 
-- [ ] **Step 8: Run focused tests and full suite GREEN**
+- [x] **Step 8: Run focused tests and full suite GREEN**
 
 Run the focused command, then:
 `./gradlew :TMessagesProj:testNormalDebugUnitTest --no-configuration-cache`
 
 Expected: focused tests PASS and full suite has zero failures/errors.
 
-- [ ] **Step 9: Purity/diff check and commit Task 1**
+- [x] **Step 9: Purity/diff check and commit Task 1**
 
 Verify helper imports only `java.*`, contains no Android/Telegram/Room/NaConfig/Gson references, and creates no thread/executor. Run `git diff --check`.
 
@@ -125,13 +125,13 @@ Commit: `perf: add ayufilter exclusion snapshots`
 - `setDialogExcluded(long,boolean)` copies the view, persists on change, publishes with the exact persisted raw string, then keeps `AyuFilterCache.clearDialog(dialogId)`.
 - `rebuildCache()` calls `ExclusionSnapshotsHolder.INSTANCE.invalidateAll()`.
 
-- [ ] **Step 1: Capture parity baselines before editing**
+- [x] **Step 1: Capture parity baselines before editing**
 
 With a brace-aware source extractor capture the P3 bodies of `isFiltered`, `getMessageText`, `isFilterMatch`, and the current `rebuildCache` notification tail. Record `regexFiltersEnabled` default from `NaConfig.kt`.
 
 Expected: `isFiltered` shows `isDialogExcluded` before `AyuFilterCache.get`; default is `false`.
 
-- [ ] **Step 2: Write failing dialog integration shape tests**
+- [x] **Step 2: Write failing dialog integration shape tests**
 
 The test reads `AyuFilter.java` source using a helper that resolves either repo-root or module-root working directories. Assert:
 `ExclusionSnapshotsHolder` exists;
@@ -142,13 +142,13 @@ the parse fallback retains `FileLog.e("AyuFilter.getExcludedDialogs", e)`;
 `rebuildCache` contains `.invalidateAll()`;
 `clearAllFilters` still calls `rebuildCache()` after its existing config writes.
 
-- [ ] **Step 3: Run shape test and confirm RED**
+- [x] **Step 3: Run shape test and confirm RED**
 
 Run:
 `./gradlew :TMessagesProj:testNormalDebugUnitTest --tests 'tw.nekomimi.nekogram.filters.AyuFilterDialogSnapshotShapeTest' --no-configuration-cache`
 
 Expected: FAIL because baseline `AyuFilter` has no snapshot wiring.
-- [ ] **Step 4: Implement minimal dialog integration**
+- [x] **Step 4: Implement minimal dialog integration**
 
 Keep the raw config read, Gson parse, and existing `FileLog.e("AyuFilter.getExcludedDialogs", e)` fallback inside the same catch boundary. `getExcludedDialogsView()` obtains the current raw string and calls helper `dialogs`; parse exceptions return an empty read-only set for that call and are not published.
 
@@ -156,18 +156,18 @@ Keep the raw config read, Gson parse, and existing `FileLog.e("AyuFilter.getExcl
 
 Do not edit `isFiltered`, regex matching, Room loaders, or public shared-exclusion methods in this task.
 
-- [ ] **Step 5: Run focused dialog/helper tests and Java compile**
+- [x] **Step 5: Run focused dialog/helper tests and Java compile**
 
 Run Task 1 helper test plus Task 2 shape test, then:
 `./gradlew :TMessagesProj:compileNormalDebugJavaWithJavac --no-configuration-cache`
 
 Expected: PASS.
 
-- [ ] **Step 6: Re-run parity assertions**
+- [x] **Step 6: Re-run parity assertions**
 
 Brace-aware compare `isFiltered`, `getMessageText`, and `isFilterMatch` against P3: exact body match after newline normalization. Verify `regexFiltersEnabled` is still `false`. Verify `isFiltered` ordering remains exclusion before LRU. Verify the captured `rebuildCache` notification tail remains unchanged apart from the new invalidation call earlier in the method.
 
-- [ ] **Step 7: Run full suite and commit Task 2**
+- [x] **Step 7: Run full suite and commit Task 2**
 
 Run:
 `./gradlew :TMessagesProj:testNormalDebugUnitTest --no-configuration-cache`
@@ -191,11 +191,11 @@ Commit: `perf: cache ayufilter excluded dialogs`
 - Add private `Set<String> getExcludedSharedFilterIdsView(long dialogId)`.
 - Public `HashSet<String> getExcludedSharedFilterIds(long)` delegates to helper `sharedCopy`.
 - Internal `isFilteredInternal`, `findFilteredRanges`, and `isSharedFilterExcluded` use the no-copy view.
-- [ ] **Step 1: Capture cold-path/final ownership baselines**
+- [x] **Step 1: Capture cold-path/final ownership baselines**
 
 Capture exact P3 bodies of `loadSharedFilters`, `loadChatFilterEntries`, and `getExcludedFilterEntries`. Record SHA-256 of `AyuFilterCache.java`. Record all four baseline assignments `excludedSharedFilterIdsByDialog = null`.
 
-- [ ] **Step 2: Write failing shared integration shape tests**
+- [x] **Step 2: Write failing shared integration shape tests**
 
 Assert baseline must change to satisfy all:
 the old volatile `excludedSharedFilterIdsByDialog` field is absent;
@@ -204,30 +204,30 @@ the old volatile `excludedSharedFilterIdsByDialog` field is absent;
 public `getExcludedSharedFilterIds` contains `.sharedCopy(`;
 the three non-rebuild invalidation sites call `.invalidateShared()`.
 
-- [ ] **Step 3: Run shared shape test and confirm RED**
+- [x] **Step 3: Run shared shape test and confirm RED**
 
 Run:
 `./gradlew :TMessagesProj:testNormalDebugUnitTest --tests 'tw.nekomimi.nekogram.filters.AyuFilterSharedSnapshotShapeTest' --no-configuration-cache`
 
 Expected: FAIL against the old volatile-map/copying integration.
 
-- [ ] **Step 4: Implement shared snapshot integration**
+- [x] **Step 4: Implement shared snapshot integration**
 
 Remove direct shared-map ownership from `AyuFilter`. The loader still performs the same synchronous Room call through `getExcludedFilterEntries()` and the same map-building logic; helper deep-copies it at publication.
 
 Use borrowed read-only views only for internal membership checks. Keep public copy mutable/independent. Replace invalidation assignments in add/remove/filter-removal with `invalidateShared()`; `rebuildCache()` already uses `invalidateAll()`. Preserve existing `AyuFilterCache.clearAll()` calls and ordering.
 
-- [ ] **Step 5: Run focused tests + compile GREEN**
+- [x] **Step 5: Run focused tests + compile GREEN**
 
 Run Task 1 helper test, Task 2 dialog shape test, Task 3 shared shape test, then Java compile.
 
 Expected: PASS.
 
-- [ ] **Step 6: Re-run cold-path parity gates**
+- [x] **Step 6: Re-run cold-path parity gates**
 
 Brace-aware compare the three frozen Room-loader bodies to P3 and compare `AyuFilterCache.java` SHA-256. Expected: exact match. Search for any remaining `excludedSharedFilterIdsByDialog = null`; expected: none.
 
-- [ ] **Step 7: Full suite, diff check, commit Task 3**
+- [x] **Step 7: Full suite, diff check, commit Task 3**
 
 Run full `:TMessagesProj:testNormalDebugUnitTest`, `git diff --check`, and inspect changed files.
 
@@ -239,28 +239,28 @@ Commit: `perf: avoid ayufilter shared exclusion copies`
 **Files:**
 - No planned product-code changes. Any defect exposed here returns to the owning task's RED→GREEN cycle.
 
-- [ ] **Step 1: Run all new P4A tests fresh at HEAD**
+- [x] **Step 1: Run all new P4A tests fresh at HEAD**
 
 Run the helper test and both integration-shape tests in one Gradle invocation.
 
 Expected: PASS.
 
-- [ ] **Step 2: Run full unit suite fresh**
+- [x] **Step 2: Run full unit suite fresh**
 
 Run:
 `./gradlew :TMessagesProj:testNormalDebugUnitTest --no-configuration-cache`
 
 Expected: `BUILD SUCCESSFUL`, zero failures/errors.
 
-- [ ] **Step 3: Re-run frozen behavior checks**
+- [x] **Step 3: Re-run frozen behavior checks**
 
 Require exact P3 body match for `isFiltered`, `getMessageText`, `isFilterMatch`, `loadSharedFilters`, `loadChatFilterEntries`, and `getExcludedFilterEntries`. Require unchanged `AyuFilterCache.java` SHA-256 and `RegexFilters=false`.
 
-- [ ] **Step 4: Audit complete P4A runtime diff from P3**
+- [x] **Step 4: Audit complete P4A runtime diff from P3**
 
 Allowed runtime files are only `AyuFilterExclusionSnapshots.java` and the exclusion ownership/invalidation/membership portions of `AyuFilter.java`. Test and approved docs are allowed. Reject UI-cell, MessageObject, NotificationsController, DAO/schema, config-definition, or AyuFilterCache runtime edits.
 
-- [ ] **Step 5: Static hot-path assertions**
+- [x] **Step 5: Static hot-path assertions**
 
 Require:
 unchanged raw config can reuse the same dialog snapshot;
@@ -273,13 +273,13 @@ all shared invalidation points remain;
 `clearAllFilters()` still reaches `rebuildCache()` after clearing serialized filter data;
 no new persistent/asynchronous work exists.
 
-- [ ] **Step 6: Final hygiene and remote verification**
+- [x] **Step 6: Final hygiene and remote verification**
 
 Run `git diff --check`, `git status --short`, inspect `git log --oneline --decorate -5`, push completed task commits, and compare local HEAD to `origin/<implementation-branch>`.
 
 Expected: clean tree and identical local/remote SHA.
 
-- [ ] **Step 7: Review P4A as one slice**
+- [x] **Step 7: Review P4A as one slice**
 
 Review raw-config external-change visibility, malformed-config retry, setter publish ordering, deep-copy ownership, invalidation/load race, defensive public API, and strict P4B boundary. Do not merge `dev`, release, install, or start device profiling.
 
