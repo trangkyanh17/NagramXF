@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -40,7 +41,6 @@ public class AyuFilter {
     private static final Object cacheLock = new Object();
     private static volatile ArrayList<FilterModel> filterModels;
     private static volatile ArrayList<ChatFilterEntry> chatFilterEntries;
-    private static volatile HashMap<Long, HashSet<String>> excludedSharedFilterIdsByDialog;
     private static volatile HashSet<Long> blockedChannels;
     private static volatile HashSet<Long> customFilteredUsers;
     private static volatile HashMap<Long, CustomFilteredUser> customFilteredUsersData;
@@ -197,7 +197,6 @@ public class AyuFilter {
         synchronized (cacheLock) {
             filterModels = null;
             chatFilterEntries = null;
-            excludedSharedFilterIdsByDialog = null;
             ExclusionSnapshotsHolder.INSTANCE.invalidateAll();
             AyuFilterCache.clearAll();
         }
@@ -245,7 +244,7 @@ public class AyuFilter {
         }
 
         if (filterModels != null) {
-            HashSet<String> excludedFilterIds = getExcludedSharedFilterIds(dialogId);
+            Set<String> excludedFilterIds = getExcludedSharedFilterIdsView(dialogId);
             for (var pattern : filterModels) {
                 if (!TextUtils.isEmpty(pattern.id) && excludedFilterIds.contains(pattern.id)) {
                     continue;
@@ -302,7 +301,7 @@ public class AyuFilter {
         }
 
         if (filterModels != null) {
-            HashSet<String> excludedFilterIds = getExcludedSharedFilterIds(dialogId);
+            Set<String> excludedFilterIds = getExcludedSharedFilterIdsView(dialogId);
             for (var filter : filterModels) {
                 if (!TextUtils.isEmpty(filter.id) && excludedFilterIds.contains(filter.id)) {
                     continue;
@@ -799,15 +798,12 @@ public class AyuFilter {
         return out;
     }
 
-    private static HashMap<Long, HashSet<String>> getExcludedSharedFilterIdsByDialog() {
-        if (excludedSharedFilterIdsByDialog == null) {
-            synchronized (cacheLock) {
-                if (excludedSharedFilterIdsByDialog == null) {
-                    excludedSharedFilterIdsByDialog = buildExcludedSharedFilterIdsMap(getExcludedFilterEntries());
-                }
-            }
-        }
-        return excludedSharedFilterIdsByDialog;
+    private static Map<Long, ? extends Set<String>> loadExcludedSharedFilterIdsMap() {
+        return buildExcludedSharedFilterIdsMap(getExcludedFilterEntries());
+    }
+
+    private static Set<String> getExcludedSharedFilterIdsView(long dialogId) {
+        return ExclusionSnapshotsHolder.INSTANCE.sharedView(dialogId, AyuFilter::loadExcludedSharedFilterIdsMap);
     }
 
     private static HashMap<Long, HashSet<String>> buildExcludedSharedFilterIdsMap(ArrayList<ExcludedFilterEntry> entries) {
@@ -825,12 +821,11 @@ public class AyuFilter {
     }
 
     public static HashSet<String> getExcludedSharedFilterIds(long dialogId) {
-        HashSet<String> ids = getExcludedSharedFilterIdsByDialog().get(dialogId);
-        return ids != null ? new HashSet<>(ids) : new HashSet<>();
+        return ExclusionSnapshotsHolder.INSTANCE.sharedCopy(dialogId, AyuFilter::loadExcludedSharedFilterIdsMap);
     }
 
     public static boolean isSharedFilterExcluded(long dialogId, String filterId) {
-        return !TextUtils.isEmpty(filterId) && getExcludedSharedFilterIds(dialogId).contains(filterId);
+        return !TextUtils.isEmpty(filterId) && getExcludedSharedFilterIdsView(dialogId).contains(filterId);
     }
 
     public static ArrayList<FilterModel> getExcludedSharedFiltersForDialog(long dialogId) {
@@ -885,7 +880,7 @@ public class AyuFilter {
             FileLog.e("AyuFilter.addSharedFilterExclusion", e);
         }
         synchronized (cacheLock) {
-            excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
         }
     }
@@ -899,7 +894,7 @@ public class AyuFilter {
             FileLog.e("AyuFilter.removeSharedFilterExclusion", e);
         }
         synchronized (cacheLock) {
-            excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
         }
     }
@@ -917,7 +912,7 @@ public class AyuFilter {
             }
         }
         synchronized (cacheLock) {
-            excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
         }
     }
