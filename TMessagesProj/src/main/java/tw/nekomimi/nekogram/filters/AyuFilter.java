@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -43,6 +44,10 @@ public class AyuFilter {
     private static volatile HashSet<Long> blockedChannels;
     private static volatile HashSet<Long> customFilteredUsers;
     private static volatile HashMap<Long, CustomFilteredUser> customFilteredUsersData;
+
+    private static final class ExclusionSnapshotsHolder {
+        private static final AyuFilterExclusionSnapshots INSTANCE = new AyuFilterExclusionSnapshots();
+    }
 
 
     public static ArrayList<FilterModel> getRegexFilters() {
@@ -193,6 +198,7 @@ public class AyuFilter {
             filterModels = null;
             chatFilterEntries = null;
             excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateAll();
             AyuFilterCache.clearAll();
         }
         AndroidUtilities.runOnUIThread(() -> {
@@ -732,26 +738,31 @@ public class AyuFilter {
     }
 
 
-    private static HashSet<Long> getExcludedDialogs() {
+    private static Set<Long> parseExcludedDialogs(String serialized) {
         HashSet<Long> set = new HashSet<>();
-        try {
-            String str = NaConfig.INSTANCE.getRegexFiltersExcludedDialogs().String();
-            Long[] arr = new Gson().fromJson(str, Long[].class);
-            if (arr != null) {
-                set.addAll(Arrays.asList(arr));
-            }
-        } catch (Exception e) {
-            FileLog.e("AyuFilter.getExcludedDialogs", e);
+        Long[] arr = new Gson().fromJson(serialized, Long[].class);
+        if (arr != null) {
+            set.addAll(Arrays.asList(arr));
         }
         return set;
     }
 
+    private static Set<Long> getExcludedDialogsView() {
+        String str = NaConfig.INSTANCE.getRegexFiltersExcludedDialogs().String();
+        try {
+            return ExclusionSnapshotsHolder.INSTANCE.dialogs(str, AyuFilter::parseExcludedDialogs);
+        } catch (Exception e) {
+            FileLog.e("AyuFilter.getExcludedDialogs", e);
+            return Collections.emptySet();
+        }
+    }
+
     public static boolean isDialogExcluded(long dialogId) {
-        return getExcludedDialogs().contains(dialogId);
+        return getExcludedDialogsView().contains(dialogId);
     }
 
     public static void setDialogExcluded(long dialogId, boolean excluded) {
-        HashSet<Long> set = new HashSet<>(getExcludedDialogs());
+        HashSet<Long> set = new HashSet<>(getExcludedDialogsView());
         boolean changed;
         if (excluded) {
             changed = set.add(dialogId);
@@ -762,6 +773,7 @@ public class AyuFilter {
             Long[] arr = set.toArray(new Long[0]);
             String str = new Gson().toJson(arr);
             NaConfig.INSTANCE.getRegexFiltersExcludedDialogs().setConfigString(str);
+            ExclusionSnapshotsHolder.INSTANCE.publishDialogs(str, set);
             AyuFilterCache.clearDialog(dialogId);
         }
     }
