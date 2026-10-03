@@ -20,6 +20,7 @@ import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
+import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.TLRPC;
 
 import java.util.ArrayList;
@@ -47,6 +48,44 @@ public class AyuFilter {
 
     private static final class ExclusionSnapshotsHolder {
         private static final AyuFilterExclusionSnapshots INSTANCE = new AyuFilterExclusionSnapshots();
+    }
+
+    private static final AyuFilterPrewarmCoordinator PREWARM_COORDINATOR =
+            new AyuFilterPrewarmCoordinator();
+
+    public static void schedulePrewarmIfEnabled() {
+        boolean enabled = NaConfig.INSTANCE.getRegexFiltersEnabled().Bool();
+        long token = PREWARM_COORDINATOR.trySchedule(enabled);
+        if (token < 0L) {
+            return;
+        }
+        try {
+            Utilities.globalQueue.postRunnable(() -> {
+                try {
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                    getRegexFilters();
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                    getChatFilterEntries();
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                    getExcludedSharedFilterIdsView(Long.MIN_VALUE);
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                } catch (Exception e) {
+                    PREWARM_COORDINATOR.onFailure(token);
+                    FileLog.e("AyuFilter.schedulePrewarmIfEnabled", e);
+                }
+            });
+        } catch (Exception e) {
+            PREWARM_COORDINATOR.onFailure(token);
+            FileLog.e("AyuFilter.schedulePrewarmIfEnabled", e);
+        }
     }
 
 
@@ -199,7 +238,9 @@ public class AyuFilter {
             chatFilterEntries = null;
             ExclusionSnapshotsHolder.INSTANCE.invalidateAll();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
         AndroidUtilities.runOnUIThread(() -> {
             NotificationCenter.getInstance(UserConfig.selectedAccount).postNotificationName(NotificationCenter.regexFiltersUpdated);
         });
@@ -882,7 +923,9 @@ public class AyuFilter {
         synchronized (cacheLock) {
             ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
     }
 
     private static void removeSharedFilterExclusion(long dialogId, String filterId) {
@@ -896,7 +939,9 @@ public class AyuFilter {
         synchronized (cacheLock) {
             ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
     }
 
     private static void removeExcludedSharedFilterEntries(String filterId) {
@@ -914,7 +959,9 @@ public class AyuFilter {
         synchronized (cacheLock) {
             ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
     }
 
     public static void clearAllFilters() {
