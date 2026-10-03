@@ -1,6 +1,6 @@
 # P4B — AyuFilter Room Prewarm Implementation Plan
 
-**Status:** Approved 2026-10-03
+**Status:** Executed — verified 2026-10-03
 **Design:** `docs/superpowers/specs/2026-10-03-ayufilter-room-prewarm-design.md`
 **Implementation base:** `cc1baf7be4a35f8ee4ccfdd26d477279a6dd7b2d`
 **Design commit:** `7a8f1894cc9b254a2496dbe9beeb21ff765dbfac`
@@ -390,27 +390,27 @@ Verify:
 
 ## Execution checklist
 
-- [ ] Task 1 RED test observed.
-- [ ] Task 1 coordinator GREEN.
-- [ ] Task 1 focused verification passed.
-- [ ] Task 1 committed.
-- [ ] Task 2 RED integration shape test observed.
-- [ ] Task 2 AyuFilter prewarm implementation GREEN.
-- [ ] Task 2 P4A regression tests passed.
-- [ ] Task 2 Java compile passed.
-- [ ] Task 2 static preservation checks passed.
-- [ ] Task 2 committed.
-- [ ] Task 3 startup/settings RED observed.
-- [ ] Task 3 startup/settings GREEN.
-- [ ] Task 3 focused regression passed.
-- [ ] Task 3 committed.
-- [ ] Task 4 full unit suite passed fresh.
-- [ ] Task 4 Java compile passed fresh.
-- [ ] Task 4 whole-P4B static gate passed.
-- [ ] Task 4 diff hygiene passed.
-- [ ] Task 5 implementation branch pushed.
-- [ ] Local/remote implementation HEAD match.
-- [ ] No integration/release/deploy/device gate crossed.
+- [x] Task 1 RED test observed.
+- [x] Task 1 coordinator GREEN.
+- [x] Task 1 focused verification passed.
+- [x] Task 1 committed.
+- [x] Task 2 RED integration shape test observed.
+- [x] Task 2 AyuFilter prewarm implementation GREEN.
+- [x] Task 2 P4A regression tests passed.
+- [x] Task 2 Java compile passed.
+- [x] Task 2 static preservation checks passed.
+- [x] Task 2 committed.
+- [x] Task 3 startup/settings RED observed.
+- [x] Task 3 startup/settings GREEN.
+- [x] Task 3 focused regression passed.
+- [x] Task 3 committed.
+- [x] Task 4 full unit suite passed fresh.
+- [x] Task 4 Java compile passed fresh.
+- [x] Task 4 whole-P4B static gate passed.
+- [x] Task 4 diff hygiene passed.
+- [x] Task 5 implementation branch pushed.
+- [x] Local/remote implementation HEAD match.
+- [x] No integration/release/deploy/device gate crossed.
 
 ## Stop conditions
 
