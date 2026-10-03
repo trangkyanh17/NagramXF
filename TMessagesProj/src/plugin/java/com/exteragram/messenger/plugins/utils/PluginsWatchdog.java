@@ -22,8 +22,8 @@ import java.io.File;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class PluginsWatchdog {
@@ -32,8 +32,11 @@ public class PluginsWatchdog {
     private final PluginsController controller;
     private final ConcurrentHashMap<Long, ExecutionInfo> executingPlugins = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, ExecutionInfo> frozenExecutions = new ConcurrentHashMap<>();
-    private volatile ScheduledExecutorService scheduler;
-    private final Runnable watchdogRunnable;
+    private final Object schedulerLock = new Object();
+    private boolean running;
+    private ScheduledThreadPoolExecutor scheduler;
+    private ScheduledFuture<?> scheduledCheck;
+    private long scheduledDeadlineMs = PluginsWatchdogDeadlinePolicy.NO_DEADLINE;
 
     private static final class ExecutionInfo {
         final String pluginId;
@@ -47,40 +50,32 @@ public class PluginsWatchdog {
 
     public PluginsWatchdog(PluginsController controller) {
         this.controller = controller;
-        this.watchdogRunnable = () -> {
-            try {
-                long now = System.currentTimeMillis();
-                boolean notify = false;
-                for (Map.Entry<Long, ExecutionInfo> entry : executingPlugins.entrySet()) {
-                    ExecutionInfo info = entry.getValue();
-                    if (now - info.startTime <= FREEZE_TIMEOUT_MS) {
-                        continue;
-                    }
-                    if (freezeExecution(entry.getKey(), info)) {
-                        notify = true;
-                    }
-                }
-                if (notify) {
-                    NotificationCenter.getGlobalInstance().postNotificationNameOnUIThread(NotificationCenter.pluginIsNotResponding);
-                }
-            } catch (Throwable t) {
-                FileLog.e(t);
-            }
-        };
     }
 
     public void start() {
-        if (scheduler != null && !scheduler.isShutdown()) {
-            return;
+        synchronized (schedulerLock) {
+            if (running) {
+                return;
+            }
+            running = true;
         }
-        scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleWithFixedDelay(watchdogRunnable, 1L, 1L, TimeUnit.SECONDS);
+        scheduleNextCheck();
     }
 
     public void stop() {
-        if (scheduler != null) {
-            scheduler.shutdownNow();
+        ScheduledThreadPoolExecutor schedulerToShutdown;
+        synchronized (schedulerLock) {
+            running = false;
+            if (scheduledCheck != null) {
+                scheduledCheck.cancel(false);
+                scheduledCheck = null;
+            }
+            scheduledDeadlineMs = PluginsWatchdogDeadlinePolicy.NO_DEADLINE;
+            schedulerToShutdown = scheduler;
             scheduler = null;
+        }
+        if (schedulerToShutdown != null) {
+            schedulerToShutdown.shutdownNow();
         }
         for (ExecutionInfo info : frozenExecutions.values()) {
             Plugin plugin = controller.plugins.get(info.pluginId);
@@ -100,14 +95,14 @@ public class PluginsWatchdog {
         ExecutionInfo info = new ExecutionInfo(pluginId, System.currentTimeMillis());
         executingPlugins.put(threadId, info);
         ExecutionInfo frozen = frozenExecutions.remove(threadId);
-        if (frozen == null) {
-            return;
+        if (frozen != null) {
+            if (Objects.equals(frozen.pluginId, pluginId)) {
+                frozenExecutions.put(threadId, info);
+            } else {
+                clearNotResponding(frozen);
+            }
         }
-        if (Objects.equals(frozen.pluginId, pluginId)) {
-            frozenExecutions.put(threadId, info);
-        } else {
-            clearNotResponding(frozen);
-        }
+        scheduleNextCheck();
     }
 
     public void onPluginExecutionFinished(String pluginId) {
@@ -119,6 +114,97 @@ public class PluginsWatchdog {
         ExecutionInfo frozen = frozenExecutions.remove(threadId);
         if (frozen != null) {
             clearNotResponding(frozen);
+        }
+        scheduleNextCheck();
+    }
+
+    private ScheduledThreadPoolExecutor getOrCreateSchedulerLocked() {
+        if (scheduler == null || scheduler.isShutdown()) {
+            scheduler = new ScheduledThreadPoolExecutor(1);
+            scheduler.setRemoveOnCancelPolicy(true);
+            scheduler.setKeepAliveTime(1L, TimeUnit.SECONDS);
+            scheduler.allowCoreThreadTimeOut(true);
+        }
+        return scheduler;
+    }
+
+    private void scheduleNextCheck() {
+        synchronized (schedulerLock) {
+            if (!running) {
+                return;
+            }
+            long deadline = PluginsWatchdogDeadlinePolicy.earliestDeadline(
+                    executingPlugins,
+                    frozenExecutions,
+                    info -> info.startTime,
+                    FREEZE_TIMEOUT_MS);
+            if (deadline == PluginsWatchdogDeadlinePolicy.NO_DEADLINE) {
+                if (scheduledCheck != null) {
+                    scheduledCheck.cancel(false);
+                    scheduledCheck = null;
+                }
+                scheduledDeadlineMs = PluginsWatchdogDeadlinePolicy.NO_DEADLINE;
+                return;
+            }
+            if (scheduledCheck != null
+                    && !scheduledCheck.isDone()
+                    && scheduledDeadlineMs == deadline) {
+                return;
+            }
+            if (scheduledCheck != null) {
+                scheduledCheck.cancel(false);
+            }
+            long delay = Math.max(0L, deadline - System.currentTimeMillis());
+            scheduledDeadlineMs = deadline;
+            scheduledCheck = getOrCreateSchedulerLocked().schedule(
+                    this::runWatchdogCheck,
+                    delay,
+                    TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void runWatchdogCheck() {
+        synchronized (schedulerLock) {
+            if (!running) {
+                return;
+            }
+            scheduledCheck = null;
+            scheduledDeadlineMs = PluginsWatchdogDeadlinePolicy.NO_DEADLINE;
+        }
+        try {
+            long now = System.currentTimeMillis();
+            boolean notify = false;
+            for (Map.Entry<Long, ExecutionInfo> entry : executingPlugins.entrySet()) {
+                ExecutionInfo info = entry.getValue();
+                if (!PluginsWatchdogDeadlinePolicy.isOverdue(info.startTime, now, FREEZE_TIMEOUT_MS)) {
+                    continue;
+                }
+                if (freezeExecutionIfRunning(entry.getKey(), info)) {
+                    notify = true;
+                }
+            }
+            if (notify && isRunning()) {
+                NotificationCenter.getGlobalInstance().postNotificationNameOnUIThread(NotificationCenter.pluginIsNotResponding);
+            }
+        } catch (Throwable t) {
+            FileLog.e(t);
+        } finally {
+            scheduleNextCheck();
+        }
+    }
+
+    private boolean isRunning() {
+        synchronized (schedulerLock) {
+            return running;
+        }
+    }
+
+    private boolean freezeExecutionIfRunning(long threadId, ExecutionInfo info) {
+        synchronized (schedulerLock) {
+            if (!running) {
+                return false;
+            }
+            return freezeExecution(threadId, info);
         }
     }
 
