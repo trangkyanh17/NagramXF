@@ -1,6 +1,6 @@
 # P5 — Lazy MediaStreamingProvider Lifecycle Implementation Plan
 
-**Status:** Approved 2026-10-03
+**Status:** Executed — verified 2026-10-03
 **Design:** `docs/superpowers/specs/2026-10-03-media-streaming-provider-lazy-lifecycle-design.md`
 **Implementation base:** `57931554aec829fd6c5ceb6a2e2b13010bcf3170`
 **Design commit:** `d2a44d50f961eb226ef69bfd2cec3e61170001e4`
@@ -175,23 +175,23 @@ Do not merge into `dev`, release, build/install APK, or claim device-level batte
 
 ## Execution checklist
 
-- [ ] Task 1 RED test observed.
-- [ ] Task 2 lazy worker implementation GREEN.
-- [ ] Focused P5 test passed.
-- [ ] Java compile passed.
-- [ ] Task 2 committed.
-- [ ] Full unit suite passed fresh.
-- [ ] Fresh Java compile passed.
-- [ ] Whole-P5 static preservation gate passed.
-- [ ] Manifest unchanged from P4B.
-- [ ] PhotoViewer unchanged from P4B.
-- [ ] StorageManagerCompat unchanged from P4B.
-- [ ] No unrelated runtime file changed.
-- [ ] No new persistent background resource added.
-- [ ] git diff --check passed.
-- [ ] Implementation branch pushed.
-- [ ] Local/remote implementation HEAD match.
-- [ ] No integration/release/deploy/device gate crossed.
+- [x] Task 1 RED test observed.
+- [x] Task 2 lazy worker implementation GREEN.
+- [x] Focused P5 test passed.
+- [x] Java compile passed.
+- [x] Task 2 committed.
+- [x] Full unit suite passed fresh.
+- [x] Fresh Java compile passed.
+- [x] Whole-P5 static preservation gate passed.
+- [x] Manifest unchanged from P4B.
+- [x] PhotoViewer unchanged from P4B.
+- [x] StorageManagerCompat unchanged from P4B.
+- [x] No unrelated runtime file changed.
+- [x] No new persistent background resource added.
+- [x] git diff --check passed.
+- [x] Implementation branch pushed.
+- [x] Local/remote implementation HEAD match.
+- [x] No integration/release/deploy/device gate crossed.
 
 ## Stop conditions
 
