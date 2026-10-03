@@ -164,9 +164,13 @@ public class RegexFiltersSettingActivity extends BaseNekoXSettingsActivity {
         setupLongClickListener();
 
         cellGroup.callBackSettingsChanged = (key, newValue) -> {
+            if (key.equals(NaConfig.INSTANCE.getRegexFiltersEnabled().getKey()) && (boolean) newValue) {
+                AyuFilter.schedulePrewarmIfEnabled();
+            }
             if (key.equals(NekoConfig.ignoreBlocked.getKey())) {
                 if ((boolean) newValue && !NaConfig.INSTANCE.getRegexFiltersEnabled().Bool()) {
                     NaConfig.INSTANCE.getRegexFiltersEnabled().setConfigBool(true);
+                    AyuFilter.schedulePrewarmIfEnabled();
                     if (listAdapter != null) {
                         listAdapter.notifyDataSetChanged();
                     }
