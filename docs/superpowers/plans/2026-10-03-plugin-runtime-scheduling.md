@@ -1,6 +1,6 @@
 # P6 — Plugin Runtime Scheduling Implementation Plan
 
-**Status:** Draft — awaiting plan approval
+**Status:** Approved 2026-10-03
 **Design:** `docs/superpowers/specs/2026-10-03-plugin-runtime-scheduling-design.md`
 **Implementation base:** `877f1353699c5d74af526d80baddd248297153d5`
 **Design commit:** `d74b0e6336479f3bbfd75ce43eb32f60262cb6e4`
