@@ -1,6 +1,6 @@
 # P6 — Plugin Runtime Scheduling Implementation Plan
 
-**Status:** Approved 2026-10-03
+**Status:** Executed — verified 2026-10-04
 **Design:** `docs/superpowers/specs/2026-10-03-plugin-runtime-scheduling-design.md`
 **Implementation base:** `877f1353699c5d74af526d80baddd248297153d5`
 **Design commit:** `d74b0e6336479f3bbfd75ce43eb32f60262cb6e4`
@@ -366,32 +366,32 @@ Verify:
 
 ## Execution checklist
 
-- [ ] P6A RED queue test observed.
-- [ ] P6A lazy queue implementation GREEN.
-- [ ] P6A plugin compile passed.
-- [ ] P6A normal compile passed.
-- [ ] P6A committed.
-- [ ] P6B helper RED tests observed.
-- [ ] P6B deterministic deadline helper GREEN.
-- [ ] P6B helper committed.
-- [ ] Watchdog integration RED observed.
-- [ ] Deadline-driven watchdog GREEN.
-- [ ] Fixed-delay/fixed-rate scheduling removed.
-- [ ] Watchdog hook ownership inventory preserved.
-- [ ] Watchdog runtime committed.
-- [ ] Normal full unit suite passed fresh.
-- [ ] Normal Java compile passed fresh.
-- [ ] Plugin full unit suite passed fresh.
-- [ ] Plugin Java compile passed fresh.
-- [ ] Whole-P6 static preservation gate passed.
-- [ ] Plugin engine default still false.
-- [ ] ApplicationLoader unchanged from P5.
-- [ ] PluginsActivity unchanged from P5.
-- [ ] No unrelated runtime diff.
-- [ ] git diff --check passed.
-- [ ] Implementation branch pushed.
-- [ ] Local/remote implementation HEAD match.
-- [ ] No integration/release/deploy/device gate crossed.
+- [x] P6A RED queue test observed.
+- [x] P6A lazy queue implementation GREEN.
+- [x] P6A plugin compile passed.
+- [x] P6A normal compile passed.
+- [x] P6A committed.
+- [x] P6B helper RED tests observed.
+- [x] P6B deterministic deadline helper GREEN.
+- [x] P6B helper committed.
+- [x] Watchdog integration RED observed.
+- [x] Deadline-driven watchdog GREEN.
+- [x] Fixed-delay/fixed-rate scheduling removed.
+- [x] Watchdog hook ownership inventory preserved.
+- [x] Watchdog runtime committed.
+- [x] Normal full unit suite passed fresh.
+- [x] Normal Java compile passed fresh.
+- [x] Plugin full unit suite passed fresh.
+- [x] Plugin Java compile passed fresh.
+- [x] Whole-P6 static preservation gate passed.
+- [x] Plugin engine default still false.
+- [x] ApplicationLoader unchanged from P5.
+- [x] PluginsActivity unchanged from P5.
+- [x] No unrelated runtime diff.
+- [x] git diff --check passed.
+- [x] Implementation branch pushed.
+- [x] Local/remote implementation HEAD match.
+- [x] No integration/release/deploy/device gate crossed.
 
 ## Stop conditions
 
