@@ -1,6 +1,6 @@
 # P7 — Bounded Transcription Burst Concurrency Design
 
-**Status:** Draft — awaiting design approval
+**Status:** Approved 2026-10-04
 **Program:** NagramXF Performance V2
 **Implementation base after P6:** `132c8d8f87ecccf3e7a9778526675ba823d64161`
 **Golden behavioral baseline:** `30dcd6ce7b5b0279fa86f302ca61cd272bfa3068`
