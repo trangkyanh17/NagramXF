@@ -1,6 +1,6 @@
 # P7 — Bounded Transcription Burst Concurrency Implementation Plan
 
-**Status:** Approved 2026-10-04
+**Status:** Executed — verified 2026-10-04
 **Design:** `docs/superpowers/specs/2026-10-04-transcription-burst-concurrency-design.md`
 **Implementation base:** `132c8d8f87ecccf3e7a9778526675ba823d64161`
 **Design commit:** `7de45d21a9dce5a4fa3ba0230ae229172fe47e0d`
@@ -210,35 +210,35 @@ Do not merge into `dev`, release, build/install APK, or claim device-level batte
 
 ## Execution checklist
 
-- [ ] Factory RED test observed.
-- [ ] Factory implementation GREEN.
-- [ ] Factory policy exact: 2/2 workers.
-- [ ] 60-second keepalive verified.
-- [ ] Core-thread timeout verified.
-- [ ] FIFO LinkedBlockingQueue verified.
-- [ ] Two simultaneous jobs verified.
-- [ ] Third job queues without rejection.
-- [ ] Factory committed.
-- [ ] TranscribeHelper source RED test observed.
-- [ ] Cached executor removed.
-- [ ] Exactly one factory-backed transcription executor.
-- [ ] Three submit sites preserved.
-- [ ] Provider routing preserved.
-- [ ] Focused P7 tests GREEN.
-- [ ] Normal Java compile passed.
-- [ ] Runtime integration committed.
-- [ ] Full normal unit suite passed fresh.
-- [ ] Fresh normal Java compile passed.
-- [ ] Whole-P7 static preservation gate passed.
-- [ ] TranscribeButton unchanged from P6.
-- [ ] HttpClient unchanged from P6.
-- [ ] NaConfig unchanged from P6.
-- [ ] AI Client unchanged from P6.
-- [ ] No unrelated runtime diff.
-- [ ] git diff --check passed.
-- [ ] Implementation branch pushed.
-- [ ] Local/remote implementation HEAD match.
-- [ ] No integration/release/deploy/device gate crossed.
+- [x] Factory RED test observed.
+- [x] Factory implementation GREEN.
+- [x] Factory policy exact: 2/2 workers.
+- [x] 60-second keepalive verified.
+- [x] Core-thread timeout verified.
+- [x] FIFO LinkedBlockingQueue verified.
+- [x] Two simultaneous jobs verified.
+- [x] Third job queues without rejection.
+- [x] Factory committed.
+- [x] TranscribeHelper source RED test observed.
+- [x] Cached executor removed.
+- [x] Exactly one factory-backed transcription executor.
+- [x] Three submit sites preserved.
+- [x] Provider routing preserved.
+- [x] Focused P7 tests GREEN.
+- [x] Normal Java compile passed.
+- [x] Runtime integration committed.
+- [x] Full normal unit suite passed fresh.
+- [x] Fresh normal Java compile passed.
+- [x] Whole-P7 static preservation gate passed.
+- [x] TranscribeButton unchanged from P6.
+- [x] HttpClient unchanged from P6.
+- [x] NaConfig unchanged from P6.
+- [x] AI Client unchanged from P6.
+- [x] No unrelated runtime diff.
+- [x] git diff --check passed.
+- [x] Implementation branch pushed.
+- [x] Local/remote implementation HEAD match.
+- [x] No integration/release/deploy/device gate crossed.
 
 ## Stop conditions
 
