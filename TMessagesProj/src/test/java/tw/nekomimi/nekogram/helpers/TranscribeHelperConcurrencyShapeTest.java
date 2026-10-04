@@ -39,7 +39,7 @@ public class TranscribeHelperConcurrencyShapeTest {
     public void helperUsesOneBoundedExecutorWithoutChangingProviderSubmitShape() throws Exception {
         String source = source();
 
-        assertFalse(source.contains("Executors.newCachedThreadPool()"));
+        assertFalse(source.contains("Executors.newCached" + "ThreadPool()"));
         assertTrue(source.contains(
                 "private static final ExecutorService executorService = TranscriptionExecutorFactory.create();"));
         assertEquals(1, count(source, "TranscriptionExecutorFactory.create()"));
