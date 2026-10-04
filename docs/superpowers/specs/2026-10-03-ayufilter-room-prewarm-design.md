@@ -1,8 +1,8 @@
 # P4B — AyuFilter Room Prewarm Design
 
 **Status:** Approved 2026-10-03
-**Program:** NagramXF Performance V2  
-**Golden behavioral baseline:** `30dcd6ce7b5b0279fa86f302ca61cd272bfa3068`  
+**Program:** NagramXF Performance V2
+**Golden behavioral baseline:** `30dcd6ce7b5b0279fa86f302ca61cd272bfa3068`
 **Implementation base after P4A:** `cc1baf7be4a35f8ee4ccfdd26d477279a6dd7b2d`
 
 ## Intent
