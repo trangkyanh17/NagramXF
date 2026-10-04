@@ -28,6 +28,11 @@ import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.radolyn.ayugram.controllers.AyuSpyController;
+import com.radolyn.ayugram.utils.AyuAsyncRequestGate;
+import com.radolyn.ayugram.utils.AyuQueues;
+import com.radolyn.ayugram.utils.AyuUiRequestKey;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializationContext;
@@ -121,6 +126,9 @@ public class MessageDetailsActivity extends BaseFragment implements Notification
     private int ttlRow;
     private int deleteDateRow;
     private int readDateRow;
+    private final AyuAsyncRequestGate<AyuUiRequestKey> readDateRequestGate = new AyuAsyncRequestGate<>();
+    private int readDateTimestamp;
+    private boolean readDateResolved;
     private int forwardRow;
     private int restrictionReasonRow;
     private int fileNameRow;
@@ -348,11 +356,39 @@ public class MessageDetailsActivity extends BaseFragment implements Notification
         }
     }
 
+    private void requestReadDate() {
+        if (readDateRow < 0) {
+            return;
+        }
+        int account = getCurrentAccount();
+        long dialogId = messageObject.getDialogId();
+        int messageId = messageObject.getId();
+        AyuUiRequestKey requestKey = AyuUiRequestKey.forMessage(account, dialogId, messageId);
+        long generation = readDateRequestGate.begin(requestKey);
+        readDateResolved = false;
+        readDateTimestamp = 0;
+
+        AyuQueues.spyQueue.postRunnable(() -> {
+            int timestamp = AyuSpyController.getReadDateTimestamp(account, dialogId, messageId);
+            AndroidUtilities.runOnUIThread(() -> {
+                if (!readDateRequestGate.isCurrent(generation, requestKey) || fragmentDestroyed) {
+                    return;
+                }
+                readDateTimestamp = timestamp;
+                readDateResolved = true;
+                if (listAdapter != null && readDateRow >= 0) {
+                    listAdapter.notifyItemChanged(readDateRow);
+                }
+            });
+        });
+    }
+
     @Override
     public boolean onFragmentCreate() {
         super.onFragmentCreate();
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.emojiLoaded);
         updateRows();
+        requestReadDate();
         return true;
     }
 
@@ -597,6 +633,7 @@ public class MessageDetailsActivity extends BaseFragment implements Notification
 
     @Override
     public void onFragmentDestroy() {
+        readDateRequestGate.invalidate();
         super.onFragmentDestroy();
         fragmentDestroyed = true;
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.emojiLoaded);
@@ -707,16 +744,11 @@ public class MessageDetailsActivity extends BaseFragment implements Notification
                         long date = (long) messageObject.messageOwner.ayuDeleteDate * 1000;
                         textCell.setTextAndValue("Deleted", LocaleController.formatString(R.string.formatDateAtTime, LocaleController.getInstance().getFormatterYear().format(new Date(date)), LocaleController.getInstance().getFormatterDay().format(new Date(date))), divider);
                     } else if (position == readDateRow) {
-                        long dialogId = messageObject.getDialogId();
-                        int msgId = messageObject.getId();
-                        com.radolyn.ayugram.database.entities.SpyMessageRead read = com.radolyn.ayugram.controllers.AyuSpyController.getMessageRead(currentAccount, dialogId, msgId);
-                        com.radolyn.ayugram.database.entities.SpyMessageContentsRead contentsRead = com.radolyn.ayugram.controllers.AyuSpyController.getMessageContentsRead(currentAccount, dialogId, msgId);
-                        int ts = 0;
-                        if (read != null) ts = read.entityCreateDate;
-                        else if (contentsRead != null) ts = contentsRead.entityCreateDate;
                         String value;
-                        if (ts > 0) {
-                            long ms = (long) ts * 1000;
+                        if (!readDateResolved) {
+                            value = getString(R.string.Loading);
+                        } else if (readDateTimestamp > 0) {
+                            long ms = (long) readDateTimestamp * 1000;
                             value = LocaleController.formatString(R.string.formatDateAtTime, LocaleController.getInstance().getFormatterYear().format(new Date(ms)), LocaleController.getInstance().getFormatterDay().format(new Date(ms)));
                         } else {
                             value = getString(R.string.AyuReadDateUnknown);

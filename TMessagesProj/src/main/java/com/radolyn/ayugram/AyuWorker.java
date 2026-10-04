@@ -18,12 +18,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class AyuWorker {
 
     private static final long INITIAL_DELAY_MS = 1500L;
-    private static final long PERIOD_MS = 3000L;
     private static final long LAST_SEEN_FETCH_DELAY_MS = 100L;
 
-    private static ScheduledFuture<?> scheduledTask;
     private static final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor();
+    private static final RestartableOneShotScheduler oneShotScheduler =
+            new RestartableOneShotScheduler((action, delayMs) -> {
+                ScheduledFuture<?> future = scheduler.schedule(action, delayMs, TimeUnit.MILLISECONDS);
+                return new RestartableOneShotScheduler.Handle() {
+                    @Override
+                    public boolean isDone() {
+                        return future.isDone();
+                    }
+
+                    @Override
+                    public boolean cancel(boolean mayInterruptIfRunning) {
+                        return future.cancel(mayInterruptIfRunning);
+                    }
+                };
+            }, INITIAL_DELAY_MS);
     private static final ConcurrentHashMap<Integer, AtomicBoolean> needOffline =
             new ConcurrentHashMap<>();
 
@@ -37,16 +50,7 @@ public class AyuWorker {
     }
 
     public static synchronized void run() {
-        ScheduledFuture<?> existing = scheduledTask;
-        if (existing != null && !existing.isDone()) {
-            existing.cancel(false);
-        }
-        scheduledTask = scheduler.scheduleWithFixedDelay(
-                AyuWorker::runOnce,
-                INITIAL_DELAY_MS,
-                PERIOD_MS,
-                TimeUnit.MILLISECONDS
-        );
+        oneShotScheduler.restart(AyuWorker::runOnce);
     }
 
     private static void runOnce() {

@@ -42,7 +42,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.BiConsumer;
 
 import okhttp3.MediaType;
@@ -55,7 +54,7 @@ import xyz.nextalone.nagram.NaConfig;
 
 public class TranscribeHelper {
     private static final Gson gson = new Gson();
-    private static final ExecutorService executorService = Executors.newCachedThreadPool();
+    private static final ExecutorService executorService = TranscriptionExecutorFactory.create();
     public static final int TRANSCRIBE_AUTO = 0;
     // public static final int TRANSCRIBE_PREMIUM = 1;
     public static final int TRANSCRIBE_WORKERSAI = 2;

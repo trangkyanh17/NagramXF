@@ -59,6 +59,7 @@ import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 
 import tw.nekomimi.nekogram.NekoConfig;
+import tw.nekomimi.nekogram.filters.AyuFilter;
 import org.maplibre.android.MapLibre;
 import xyz.nextalone.nagram.NaConfig;
 import com.google.firebase.crashlytics.FirebaseCrashlytics;
@@ -300,6 +301,7 @@ public class ApplicationLoader extends Application {
         SharedConfig.loadConfig();
         NekoConfig.init();
         NaConfig.init();
+        AyuFilter.schedulePrewarmIfEnabled();
         LastSeenHelper.preload();
         ExteraConfig.init();
         installPluginCrashHandler();

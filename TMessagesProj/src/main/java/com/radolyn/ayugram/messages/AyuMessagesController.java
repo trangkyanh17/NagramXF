@@ -787,6 +787,17 @@ public class AyuMessagesController {
         return editedMessageDao().getAllRevisions(userId, dialogId, messageId);
     }
 
+    public static AyuHistorySnapshot loadHistorySnapshot(long userId, long dialogId, int messageId) {
+        AyuMessagesController controller = getInstance();
+        List<EditedMessage> revisions = controller.getRevisions(userId, dialogId, messageId);
+        String[] attachmentFileNames = null;
+        File attachmentDirectory = attachmentsPath;
+        if (attachmentDirectory.exists()) {
+            attachmentFileNames = attachmentDirectory.list();
+        }
+        return AyuHistorySnapshot.of(revisions, attachmentFileNames);
+    }
+
     public DeletedMessageFull getMessage(long userId, long dialogId, int messageId) {
         return deletedMessageDao().getMessage(userId, dialogId, messageId);
     }

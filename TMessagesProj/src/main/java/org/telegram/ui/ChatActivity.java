@@ -154,6 +154,10 @@ import com.radolyn.ayugram.proprietary.AyuHistoryHook;
 import com.radolyn.ayugram.proprietary.AyuHistoryPagination;
 import com.radolyn.ayugram.utils.AyuMessageUtils;
 import com.radolyn.ayugram.utils.AyuMessageKey;
+import com.radolyn.ayugram.utils.AyuAsyncRequestGate;
+import com.radolyn.ayugram.utils.AyuRevisionPresenceResolver;
+import com.radolyn.ayugram.utils.AyuSafeLookup;
+import com.radolyn.ayugram.utils.AyuUiRequestKey;
 import com.radolyn.ayugram.ui.AyuMessageHistory;
 import com.radolyn.ayugram.ui.AyuViewDeleted;
 import com.radolyn.ayugram.ui.DummyView;
@@ -952,6 +956,7 @@ public class ChatActivity extends BaseFragment implements
     public MessageObject forwardingMessage;
     public MessageObject.GroupedMessages forwardingMessageGroup;
     private AyuForward ayuForwardHandler;
+    private final AyuAsyncRequestGate<AyuUiRequestKey> ayuMenuRequestGate = new AyuAsyncRequestGate<>();
     private MessageObject.GroupedMessages replyingQuoteGroup;
     public MessageObject replyingTopMessage;
     private ReplyQuote replyingQuote;
@@ -3726,6 +3731,7 @@ public class ChatActivity extends BaseFragment implements
 
     @Override
     public void onFragmentDestroy() {
+        ayuMenuRequestGate.invalidate();
         super.onFragmentDestroy();
         AndroidUtilities.cancelRunOnUIThread(loadNextNewerFeedPage);
         AndroidUtilities.cancelRunOnUIThread(retryFailedFeedLoad);
@@ -32721,10 +32727,35 @@ public class ChatActivity extends BaseFragment implements
         return createMenu(v, single, listView, x, y, searchGroup, longpress, false, false);
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    private boolean createMenu(View v, boolean single, boolean listView, float x, float y, boolean searchGroup, boolean longpress, boolean suggestEdit, boolean onDoubleTapped) {
+    private static final class AyuMenuPreflight {
+        final MessageObject message;
+        final MessageObject primaryMessage;
+        final int type;
+        final boolean effectiveSingle;
+        final boolean terminal;
+        final boolean terminalResult;
+
+        private AyuMenuPreflight(MessageObject message, MessageObject primaryMessage, int type, boolean effectiveSingle, boolean terminal, boolean terminalResult) {
+            this.message = message;
+            this.primaryMessage = primaryMessage;
+            this.type = type;
+            this.effectiveSingle = effectiveSingle;
+            this.terminal = terminal;
+            this.terminalResult = terminalResult;
+        }
+
+        static AyuMenuPreflight ready(MessageObject message, MessageObject primaryMessage, int type, boolean effectiveSingle) {
+            return new AyuMenuPreflight(message, primaryMessage, type, effectiveSingle, false, false);
+        }
+
+        static AyuMenuPreflight terminal(boolean result) {
+            return new AyuMenuPreflight(null, null, 0, false, true, result);
+        }
+    }
+
+    private AyuMenuPreflight prepareAyuMenuPreflight(View v, boolean single, boolean longpress) {
         if (actionBar.isActionModeShowed() || isReport()) {
-            return false;
+            return AyuMenuPreflight.terminal(false);
         }
         if (chatActivityEnterView != null) {
             chatActivityEnterView.hideHints();
@@ -32743,14 +32774,14 @@ public class ChatActivity extends BaseFragment implements
             message = null;
         }
         if (message == null) {
-            return false;
+            return AyuMenuPreflight.terminal(false);
         }
         if (!single && TlUtils.isInstance(message.messageOwner.action,
                 TLRPC.TL_messageActionChangeCommunity.class,
                 TLRPC.TL_messageActionGiftPremium.class,
                 TLRPC.TL_messageActionGiftCode.class,
                 TLRPC.TL_messageActionGiftStars.class)) {
-            return false;
+            return AyuMenuPreflight.terminal(false);
         }
         if (factCheckHint != null) {
             factCheckHint.hide(false);
@@ -32770,7 +32801,7 @@ public class ChatActivity extends BaseFragment implements
                 } else {
                     BulletinFactory.of(this).createErrorBulletin(LocaleController.getString(R.string.MessageNotFound), themeDelegate).show();
                 }
-                return true;
+                return AyuMenuPreflight.terminal(true);
             }
             if (message.messageOwner.action instanceof TLRPC.TL_messageActionPollDeleteAnswer) {
                 if (message.getReplyMsgId() != 0) {
@@ -32779,7 +32810,7 @@ public class ChatActivity extends BaseFragment implements
                 } else {
                     BulletinFactory.of(this).createErrorBulletin(LocaleController.getString(R.string.MessageNotFound), themeDelegate).show();
                 }
-                return true;
+                return AyuMenuPreflight.terminal(true);
             }
             if (message.messageOwner.action instanceof TLRPC.TL_messageActionPinMessage || isGiveawayResultsMessage) {
                 if (message.getReplyMsgId() != 0) {
@@ -32787,7 +32818,7 @@ public class ChatActivity extends BaseFragment implements
                 } else {
                     BulletinFactory.of(this).createErrorBulletin(LocaleController.getString(R.string.MessageNotFound), themeDelegate).show();
                 }
-                return true;
+                return AyuMenuPreflight.terminal(true);
             } else if (!longpress && message.messageOwner.action instanceof TLRPC.TL_messageActionPaymentSent) {
                 TLRPC.TL_payments_getPaymentReceipt req = new TLRPC.TL_payments_getPaymentReceipt();
                 req.msg_id = message.getId();
@@ -32799,14 +32830,14 @@ public class ChatActivity extends BaseFragment implements
                         presentFragment(new PaymentFormActivity((TLRPC.PaymentReceipt) response));
                     }
                 }), ConnectionsManager.RequestFlagFailOnServerErrors);
-                return true;
+                return AyuMenuPreflight.terminal(true);
             } else if (!longpress && message.messageOwner.action instanceof TLRPC.TL_messageActionPaymentRefunded) {
                 TLRPC.TL_messageActionPaymentRefunded action = (TLRPC.TL_messageActionPaymentRefunded) message.messageOwner.action;
                 StarsIntroActivity.showTransactionSheet(getContext(), currentAccount, message.messageOwner.date, action, resourceProvider);
-                return true;
+                return AyuMenuPreflight.terminal(true);
             } else if (message.messageOwner.action instanceof TLRPC.TL_messageActionGroupCall || message.messageOwner.action instanceof TLRPC.TL_messageActionInviteToGroupCall || message.messageOwner.action instanceof TLRPC.TL_messageActionGroupCallScheduled) {
                 if (getParentActivity() == null) {
-                    return false;
+                    return AyuMenuPreflight.terminal(false);
                 }
                 VoIPService sharedInstance = VoIPService.getSharedInstance();
                 if (sharedInstance != null) {
@@ -32822,30 +32853,105 @@ public class ChatActivity extends BaseFragment implements
                         createGroupCall = getGroupCall() == null;
                         VoIPHelper.startCall(currentChat, null, null, createGroupCall, getParentActivity(), ChatActivity.this, getAccountInstance());
                     }
-                    return true;
+                    return AyuMenuPreflight.terminal(true);
                 } else if (fragmentContextView != null && getGroupCall() != null) {
                     if (VoIPService.getSharedInstance() != null) {
                         GroupCallActivity.create((LaunchActivity) getParentActivity(), AccountInstance.getInstance(VoIPService.getSharedInstance().getAccount()), null, null, false, null);
                     } else {
                         ChatObject.Call call = getGroupCall();
                         if (call == null) {
-                            return false;
+                            return AyuMenuPreflight.terminal(false);
                         }
                         VoIPHelper.startCall(getMessagesController().getChat(call.chatId), null, null, false, getParentActivity(), ChatActivity.this, getAccountInstance());
                     }
-                    return true;
+                    return AyuMenuPreflight.terminal(true);
                 } else if (ChatObject.canManageCalls(currentChat)) {
                     VoIPHelper.showGroupCallAlert(ChatActivity.this, currentChat, null, true, getAccountInstance());
-                    return true;
+                    return AyuMenuPreflight.terminal(true);
                 }
             } else if (message.messageOwner.action instanceof TLRPC.TL_messageActionSetChatTheme) {
                 showChatThemeBottomSheet();
-                return true;
+                return AyuMenuPreflight.terminal(true);
             }
         }
         if (message.isSponsored() || threadMessageObjects != null && threadMessageObjects.contains(message) && !isThreadChat()) {
             single = true;
         }
+
+        return AyuMenuPreflight.ready(message, primaryMessage, type, single);
+    }
+
+    private boolean isAyuMenuTargetCurrent(View view, AyuUiRequestKey requestKey) {
+        MessageObject currentMessage;
+        if (view instanceof ChatMessageCell) {
+            currentMessage = ((ChatMessageCell) view).getMessageObject();
+        } else if (view instanceof ChatActionCell) {
+            currentMessage = ((ChatActionCell) view).getMessageObject();
+        } else {
+            return false;
+        }
+        return currentMessage != null
+                && currentMessage.getDialogId() == requestKey.dialogId
+                && currentMessage.getId() == requestKey.messageId;
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private boolean createMenu(View v, boolean single, boolean listView, float x, float y, boolean searchGroup, boolean longpress, boolean suggestEdit, boolean onDoubleTapped) {
+        ayuMenuRequestGate.invalidate();
+        AyuMenuPreflight preflight = prepareAyuMenuPreflight(v, single, longpress);
+        if (preflight.terminal) {
+            return preflight.terminalResult;
+        }
+
+        boolean reachesMenuModel = preflight.effectiveSingle
+                || preflight.type < MESSAGE_TYPE_MEDIA
+                || preflight.type == MESSAGE_TYPE_SEND_ERROR_TEXT;
+        MessageObject message = preflight.message;
+        boolean hasFromPeer = message.messageOwner.from_id != null;
+        long fromUserId = hasFromPeer ? message.messageOwner.from_id.user_id : 0L;
+        long selfUserId = getAccountInstance().getUserConfig().getClientUserId();
+        boolean expiredVoiceOrRound = AyuMessageUtils.isExpiredDocument(message)
+                && (message.messageOwner.media.voice || message.messageOwner.media.round);
+        boolean eligible = reachesMenuModel && AyuRevisionPresenceResolver.isEligible(
+                NaConfig.INSTANCE.getEnableSaveEditsHistory().Bool(),
+                hasFromPeer,
+                fromUserId,
+                selfUserId,
+                expiredVoiceOrRound
+        );
+        if (!eligible) {
+            return createMenu(v, preflight.effectiveSingle, listView, x, y, searchGroup, longpress, suggestEdit, onDoubleTapped, preflight, false);
+        }
+
+        AyuUiRequestKey requestKey = AyuUiRequestKey.forTarget(currentAccount, message.getDialogId(), message.getId(), v);
+        long generation = ayuMenuRequestGate.begin(requestKey);
+        long historyDialogId = dialog_id;
+        int historyMessageId = message.messageOwner.id;
+        Utilities.globalQueue.postRunnable(() -> {
+            boolean hasRevisions = AyuSafeLookup.run(
+                    () -> AyuMessagesController.getInstance().hasAnyRevisions(selfUserId, historyDialogId, historyMessageId),
+                    false,
+                    error -> FileLog.e(error)
+            );
+            AndroidUtilities.runOnUIThread(() -> {
+                if (!ayuMenuRequestGate.isCurrent(generation, requestKey)
+                        || isFinished
+                        || fragmentView == null
+                        || !isAyuMenuTargetCurrent(v, requestKey)) {
+                    return;
+                }
+                createMenu(v, preflight.effectiveSingle, listView, x, y, searchGroup, longpress, suggestEdit, onDoubleTapped, preflight, hasRevisions);
+            });
+        });
+        return true;
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private boolean createMenu(View v, boolean single, boolean listView, float x, float y, boolean searchGroup, boolean longpress, boolean suggestEdit, boolean onDoubleTapped, AyuMenuPreflight preflight, Boolean ayuHasRevisions) {
+        MessageObject message = preflight.message;
+        MessageObject primaryMessage = preflight.primaryMessage;
+        final int type = preflight.type;
+        single = preflight.effectiveSingle;
 
         selectedObject = null;
         selectedObjectGroup = null;
@@ -33040,7 +33146,7 @@ public class ChatActivity extends BaseFragment implements
                     && message.messageOwner.from_id != null
                     && message.messageOwner.from_id.user_id != getAccountInstance().getUserConfig().getClientUserId()
                     && !(AyuMessageUtils.isExpiredDocument(message) && (message.messageOwner.media.voice || message.messageOwner.media.round))
-                    && AyuMessagesController.getInstance().hasAnyRevisions(getAccountInstance().getUserConfig().getClientUserId(), dialog_id, message.messageOwner.id)
+                    && ayuHasRevisions
             ) {
                 int idx = options.isEmpty() ? 0 : options.size() - 1;
                 items.add(idx, getString(R.string.EditsHistoryMenuText));

@@ -593,15 +593,22 @@ public class PluginsController implements PluginsHooks {
         init(runnable);
     }
 
-    public static void runOnPluginsQueue(Runnable runnable) {
-        if (Utilities.pluginsQueue == null || !Utilities.pluginsQueue.isAlive()) {
-            synchronized (PluginsController.class) {
-                if (Utilities.pluginsQueue == null || !Utilities.pluginsQueue.isAlive()) {
-                    Utilities.pluginsQueue = new DispatchQueue("pluginsQueue");
-                }
-            }
+    private static DispatchQueue getOrCreatePluginsQueue() {
+        DispatchQueue queue = Utilities.pluginsQueue;
+        if (queue != null && queue.isAlive()) {
+            return queue;
         }
-        Utilities.pluginsQueue.postRunnable(runnable);
+        synchronized (PluginsController.class) {
+            queue = Utilities.pluginsQueue;
+            if (queue == null || !queue.isAlive()) {
+                Utilities.pluginsQueue = queue = new DispatchQueue("pluginsQueue");
+            }
+            return Utilities.pluginsQueue;
+        }
+    }
+
+    public static void runOnPluginsQueue(Runnable runnable) {
+        getOrCreatePluginsQueue().postRunnable(runnable);
     }
 
     public void init(Runnable runnable) {
@@ -615,9 +622,7 @@ public class PluginsController implements PluginsHooks {
         NativeCrashHandler.checkAndHandleNativeCrash();
         applyArtOpts();
         watchdog.start();
-        if (Utilities.pluginsQueue == null || !Utilities.pluginsQueue.isAlive()) {
-            Utilities.pluginsQueue = new DispatchQueue("pluginsQueue");
-        }
+        getOrCreatePluginsQueue();
         if (preferences == null && ApplicationLoader.applicationContext != null) {
             preferences = ApplicationLoader.applicationContext.getSharedPreferences("plugin_settings", 0);
         }
@@ -894,7 +899,7 @@ public class PluginsController implements PluginsHooks {
             }
             return;
         }
-        Utilities.pluginsQueue.postRunnable(() -> {
+        runOnPluginsQueue(() -> {
             try {
                 PluginsEngine engine = getPluginEngine(pluginId);
                 if (engine == null) {

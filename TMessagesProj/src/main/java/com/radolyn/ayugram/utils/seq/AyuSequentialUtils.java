@@ -76,32 +76,30 @@ public abstract class AyuSequentialUtils {
     public static boolean dispatchSendSync(int currentAccount, long targetDialogId, String uploadPath, boolean waitForMessage, boolean waitForUpload, DispatchAction action) {
         DummyMessageWaiter messageWaiter = waitForMessage ? new DummyMessageWaiter(currentAccount) : null;
         DummyFileUploadWaiter uploadWaiter = waitForUpload && !TextUtils.isEmpty(uploadPath) ? new DummyFileUploadWaiter(currentAccount, uploadPath) : null;
-        long dialogId = 0L;
-        ArrayList<Integer> existingSendingIds = null;
 
         if (messageWaiter != null) {
-            dialogId = resolveDialogId(currentAccount, targetDialogId);
-            existingSendingIds = SendMessagesHelper.getInstance(currentAccount).getSendingMessageIds(dialogId);
+            long dialogId = resolveDialogId(currentAccount, targetDialogId);
+            ArrayList<Integer> existingSendingIds = SendMessagesHelper.getInstance(currentAccount).getSendingMessageIds(dialogId);
+            messageWaiter.prepare(dialogId, existingSendingIds);
             messageWaiter.subscribe();
         }
         if (uploadWaiter != null) {
             uploadWaiter.subscribe();
         }
 
-        AndroidUtilities.runOnUIThread(action::dispatch);
+        if (messageWaiter != null) {
+            AndroidUtilities.runOnUIThread(() -> DispatchCompletionRunner.run(action::dispatch, messageWaiter::onDispatchCompleted));
+        } else {
+            AndroidUtilities.runOnUIThread(action::dispatch);
+        }
 
-        if (messageWaiter != null) {
-            messageWaiter.trySetSendingId(dialogId, existingSendingIds);
-        }
-        if (uploadWaiter != null) {
-            if (messageWaiter != null) {
-                uploadWaiter.setMessageId(messageWaiter.sendingId);
-            }
-            uploadWaiter.await();
-        }
-        if (messageWaiter != null) {
-            messageWaiter.await();
-        }
+        int sendingId = messageWaiter != null ? messageWaiter.awaitSendingId() : 0;
+        SendWaitSequence.run(
+                sendingId,
+                uploadWaiter != null && messageWaiter != null ? uploadWaiter::setMessageId : null,
+                uploadWaiter != null ? uploadWaiter::await : null,
+                messageWaiter != null ? messageWaiter::await : null
+        );
 
         return true;
     }

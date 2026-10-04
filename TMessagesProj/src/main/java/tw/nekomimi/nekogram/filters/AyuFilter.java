@@ -20,6 +20,7 @@ import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
+import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.TLRPC;
 
 import java.util.ArrayList;
@@ -28,6 +29,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -39,10 +42,51 @@ public class AyuFilter {
     private static final Object cacheLock = new Object();
     private static volatile ArrayList<FilterModel> filterModels;
     private static volatile ArrayList<ChatFilterEntry> chatFilterEntries;
-    private static volatile HashMap<Long, HashSet<String>> excludedSharedFilterIdsByDialog;
     private static volatile HashSet<Long> blockedChannels;
     private static volatile HashSet<Long> customFilteredUsers;
     private static volatile HashMap<Long, CustomFilteredUser> customFilteredUsersData;
+
+    private static final class ExclusionSnapshotsHolder {
+        private static final AyuFilterExclusionSnapshots INSTANCE = new AyuFilterExclusionSnapshots();
+    }
+
+    private static final AyuFilterPrewarmCoordinator PREWARM_COORDINATOR =
+            new AyuFilterPrewarmCoordinator();
+
+    public static void schedulePrewarmIfEnabled() {
+        boolean enabled = NaConfig.INSTANCE.getRegexFiltersEnabled().Bool();
+        long token = PREWARM_COORDINATOR.trySchedule(enabled);
+        if (token < 0L) {
+            return;
+        }
+        try {
+            Utilities.globalQueue.postRunnable(() -> {
+                try {
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                    getRegexFilters();
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                    getChatFilterEntries();
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                    getExcludedSharedFilterIdsView(Long.MIN_VALUE);
+                    if (!PREWARM_COORDINATOR.isCurrent(token)) {
+                        return;
+                    }
+                } catch (Exception e) {
+                    PREWARM_COORDINATOR.onFailure(token);
+                    FileLog.e("AyuFilter.schedulePrewarmIfEnabled", e);
+                }
+            });
+        } catch (Exception e) {
+            PREWARM_COORDINATOR.onFailure(token);
+            FileLog.e("AyuFilter.schedulePrewarmIfEnabled", e);
+        }
+    }
 
 
     public static ArrayList<FilterModel> getRegexFilters() {
@@ -192,9 +236,11 @@ public class AyuFilter {
         synchronized (cacheLock) {
             filterModels = null;
             chatFilterEntries = null;
-            excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateAll();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
         AndroidUtilities.runOnUIThread(() -> {
             NotificationCenter.getInstance(UserConfig.selectedAccount).postNotificationName(NotificationCenter.regexFiltersUpdated);
         });
@@ -239,7 +285,7 @@ public class AyuFilter {
         }
 
         if (filterModels != null) {
-            HashSet<String> excludedFilterIds = getExcludedSharedFilterIds(dialogId);
+            Set<String> excludedFilterIds = getExcludedSharedFilterIdsView(dialogId);
             for (var pattern : filterModels) {
                 if (!TextUtils.isEmpty(pattern.id) && excludedFilterIds.contains(pattern.id)) {
                     continue;
@@ -296,7 +342,7 @@ public class AyuFilter {
         }
 
         if (filterModels != null) {
-            HashSet<String> excludedFilterIds = getExcludedSharedFilterIds(dialogId);
+            Set<String> excludedFilterIds = getExcludedSharedFilterIdsView(dialogId);
             for (var filter : filterModels) {
                 if (!TextUtils.isEmpty(filter.id) && excludedFilterIds.contains(filter.id)) {
                     continue;
@@ -732,26 +778,31 @@ public class AyuFilter {
     }
 
 
-    private static HashSet<Long> getExcludedDialogs() {
+    private static Set<Long> parseExcludedDialogs(String serialized) {
         HashSet<Long> set = new HashSet<>();
-        try {
-            String str = NaConfig.INSTANCE.getRegexFiltersExcludedDialogs().String();
-            Long[] arr = new Gson().fromJson(str, Long[].class);
-            if (arr != null) {
-                set.addAll(Arrays.asList(arr));
-            }
-        } catch (Exception e) {
-            FileLog.e("AyuFilter.getExcludedDialogs", e);
+        Long[] arr = new Gson().fromJson(serialized, Long[].class);
+        if (arr != null) {
+            set.addAll(Arrays.asList(arr));
         }
         return set;
     }
 
+    private static Set<Long> getExcludedDialogsView() {
+        String str = NaConfig.INSTANCE.getRegexFiltersExcludedDialogs().String();
+        try {
+            return ExclusionSnapshotsHolder.INSTANCE.dialogs(str, AyuFilter::parseExcludedDialogs);
+        } catch (Exception e) {
+            FileLog.e("AyuFilter.getExcludedDialogs", e);
+            return Collections.emptySet();
+        }
+    }
+
     public static boolean isDialogExcluded(long dialogId) {
-        return getExcludedDialogs().contains(dialogId);
+        return getExcludedDialogsView().contains(dialogId);
     }
 
     public static void setDialogExcluded(long dialogId, boolean excluded) {
-        HashSet<Long> set = new HashSet<>(getExcludedDialogs());
+        HashSet<Long> set = new HashSet<>(getExcludedDialogsView());
         boolean changed;
         if (excluded) {
             changed = set.add(dialogId);
@@ -762,6 +813,7 @@ public class AyuFilter {
             Long[] arr = set.toArray(new Long[0]);
             String str = new Gson().toJson(arr);
             NaConfig.INSTANCE.getRegexFiltersExcludedDialogs().setConfigString(str);
+            ExclusionSnapshotsHolder.INSTANCE.publishDialogs(str, set);
             AyuFilterCache.clearDialog(dialogId);
         }
     }
@@ -787,15 +839,12 @@ public class AyuFilter {
         return out;
     }
 
-    private static HashMap<Long, HashSet<String>> getExcludedSharedFilterIdsByDialog() {
-        if (excludedSharedFilterIdsByDialog == null) {
-            synchronized (cacheLock) {
-                if (excludedSharedFilterIdsByDialog == null) {
-                    excludedSharedFilterIdsByDialog = buildExcludedSharedFilterIdsMap(getExcludedFilterEntries());
-                }
-            }
-        }
-        return excludedSharedFilterIdsByDialog;
+    private static Map<Long, ? extends Set<String>> loadExcludedSharedFilterIdsMap() {
+        return buildExcludedSharedFilterIdsMap(getExcludedFilterEntries());
+    }
+
+    private static Set<String> getExcludedSharedFilterIdsView(long dialogId) {
+        return ExclusionSnapshotsHolder.INSTANCE.sharedView(dialogId, AyuFilter::loadExcludedSharedFilterIdsMap);
     }
 
     private static HashMap<Long, HashSet<String>> buildExcludedSharedFilterIdsMap(ArrayList<ExcludedFilterEntry> entries) {
@@ -813,12 +862,11 @@ public class AyuFilter {
     }
 
     public static HashSet<String> getExcludedSharedFilterIds(long dialogId) {
-        HashSet<String> ids = getExcludedSharedFilterIdsByDialog().get(dialogId);
-        return ids != null ? new HashSet<>(ids) : new HashSet<>();
+        return ExclusionSnapshotsHolder.INSTANCE.sharedCopy(dialogId, AyuFilter::loadExcludedSharedFilterIdsMap);
     }
 
     public static boolean isSharedFilterExcluded(long dialogId, String filterId) {
-        return !TextUtils.isEmpty(filterId) && getExcludedSharedFilterIds(dialogId).contains(filterId);
+        return !TextUtils.isEmpty(filterId) && getExcludedSharedFilterIdsView(dialogId).contains(filterId);
     }
 
     public static ArrayList<FilterModel> getExcludedSharedFiltersForDialog(long dialogId) {
@@ -873,9 +921,11 @@ public class AyuFilter {
             FileLog.e("AyuFilter.addSharedFilterExclusion", e);
         }
         synchronized (cacheLock) {
-            excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
     }
 
     private static void removeSharedFilterExclusion(long dialogId, String filterId) {
@@ -887,9 +937,11 @@ public class AyuFilter {
             FileLog.e("AyuFilter.removeSharedFilterExclusion", e);
         }
         synchronized (cacheLock) {
-            excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
     }
 
     private static void removeExcludedSharedFilterEntries(String filterId) {
@@ -905,9 +957,11 @@ public class AyuFilter {
             }
         }
         synchronized (cacheLock) {
-            excludedSharedFilterIdsByDialog = null;
+            ExclusionSnapshotsHolder.INSTANCE.invalidateShared();
             AyuFilterCache.clearAll();
+            PREWARM_COORDINATOR.invalidate();
         }
+        schedulePrewarmIfEnabled();
     }
 
     public static void clearAllFilters() {
