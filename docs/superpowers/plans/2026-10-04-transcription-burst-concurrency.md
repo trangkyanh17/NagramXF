@@ -1,6 +1,6 @@
 # P7 — Bounded Transcription Burst Concurrency Implementation Plan
 
-**Status:** Draft — awaiting plan approval
+**Status:** Approved 2026-10-04
 **Design:** `docs/superpowers/specs/2026-10-04-transcription-burst-concurrency-design.md`
 **Implementation base:** `132c8d8f87ecccf3e7a9778526675ba823d64161`
 **Design commit:** `7de45d21a9dce5a4fa3ba0230ae229172fe47e0d`
